@@ -1,0 +1,256 @@
+import { categoryLabel } from '@/lib/categories'
+
+// ── Source row shapes (selected from the DB) ────────────────────────────────────
+
+export type ExportNom = {
+  id: string
+  nomination_id: string
+  nominee_name: string
+  company: string
+  designation: string | null
+  master_category: string
+  category_key: string
+  raw_data_json: Record<string, Record<string, string>>
+}
+export type ExportSummary = {
+  nomination_id: string
+  total_score: number | null
+  qualifies: boolean | null
+  summary: string | null
+  jury_notes: string | null
+  strategic_feedback: string | null
+  criteria_scores_json: Record<string, number> | null
+}
+export type ExportAssignment = { nomination_id: string; juror_id: string; status: string }
+export type ExportScore = { nomination_id: string; juror_id: string; total_score: number; comment: string | null; version: number }
+export type ExportJuror = { id: string; name: string }
+
+export type ExportData = {
+  nominations: ExportNom[]
+  summaries: ExportSummary[]
+  assignments: ExportAssignment[]
+  scores: ExportScore[]
+  jurors: ExportJuror[]
+}
+
+// ── Assembled unified record (one per nomination) ───────────────────────────────
+
+export type JurorResult = { name: string; total: number; comment: string | null }
+export type Assembled = {
+  nom: ExportNom
+  summary: ExportSummary | null
+  complete: boolean
+  final_score: number | null
+  rank: number | null
+  tied: boolean
+  jurorResults: JurorResult[]
+}
+
+export type SheetDef = { name: string; headers: string[]; aoa: (string | number)[][] }
+
+const SECTION_ORDER = ['Basic', 'Round 1', 'Round 2', 'Round 3']
+const REF = 'Reference Only: ' // prefix for non-binding AI fields
+
+// Flatten raw_data_json into ordered "Section — Question" → answer.
+function flattenRaw(raw: Record<string, Record<string, string>>): Record<string, string> {
+  const out: Record<string, string> = {}
+  const keys = Object.keys(raw ?? {})
+  const sections = [
+    ...SECTION_ORDER.filter((s) => keys.includes(s)),
+    ...keys.filter((s) => !SECTION_ORDER.includes(s)),
+  ]
+  for (const s of sections) {
+    for (const [q, a] of Object.entries(raw[s] ?? {})) out[`${s} — ${q}`] = a
+  }
+  return out
+}
+
+// Build assembled records grouped & ranked by category_key (the award category).
+export function assembleByCategory(data: ExportData): Map<string, Assembled[]> {
+  const jurorMap = new Map(data.jurors.map((j) => [j.id, j.name]))
+  const summaryMap = new Map(data.summaries.map((s) => [s.nomination_id, s]))
+
+  // Latest score (+comment) per nomination×juror — scores arrive version-desc.
+  const latest = new Map<string, ExportScore>()
+  for (const s of data.scores) {
+    const k = `${s.nomination_id}:${s.juror_id}`
+    if (!latest.has(k)) latest.set(k, s)
+  }
+
+  const assignmentsByNom = new Map<string, ExportAssignment[]>()
+  for (const a of data.assignments) {
+    if (!assignmentsByNom.has(a.nomination_id)) assignmentsByNom.set(a.nomination_id, [])
+    assignmentsByNom.get(a.nomination_id)!.push(a)
+  }
+
+  const records: Assembled[] = data.nominations.map((nom) => {
+    const scored = (assignmentsByNom.get(nom.id) ?? []).filter((a) => a.status === 'scored')
+    const complete = scored.length >= 2
+    const jurorResults: JurorResult[] = scored.map((a) => {
+      const sc = latest.get(`${nom.id}:${a.juror_id}`)
+      return { name: jurorMap.get(a.juror_id) ?? 'Unknown', total: sc?.total_score ?? 0, comment: sc?.comment ?? null }
+    })
+    const final_score = complete ? jurorResults.reduce((s, j) => s + j.total, 0) / 2 : null
+    return { nom, summary: summaryMap.get(nom.id) ?? null, complete, final_score, rank: null, tied: false, jurorResults }
+  })
+
+  const byCat = new Map<string, Assembled[]>()
+  for (const r of records) {
+    if (!byCat.has(r.nom.category_key)) byCat.set(r.nom.category_key, [])
+    byCat.get(r.nom.category_key)!.push(r)
+  }
+
+  // Rank complete records within each category (SCR: 1,2,2,4); ties flagged.
+  for (const recs of byCat.values()) {
+    const complete = recs.filter((r) => r.complete).sort((a, b) => (b.final_score ?? 0) - (a.final_score ?? 0))
+    for (let i = 0; i < complete.length; i++) {
+      if (i > 0 && complete[i].final_score === complete[i - 1].final_score) {
+        complete[i].rank = complete[i - 1].rank
+        complete[i].tied = true
+        complete[i - 1].tied = true
+      } else {
+        complete[i].rank = i + 1
+      }
+    }
+  }
+  return byCat
+}
+
+// One sheet for a single category — raw + editorial + jury results side by side.
+export function sheetForCategory(categoryKey: string, records: Assembled[]): SheetDef {
+  // Union of raw question columns across rows, preserving first-seen order.
+  const flats = records.map((r) => flattenRaw(r.nom.raw_data_json))
+  const rawCols: string[] = []
+  const seen = new Set<string>()
+  for (const f of flats) for (const k of Object.keys(f)) if (!seen.has(k)) { seen.add(k); rawCols.push(k) }
+
+  // Union of AI criterion keys (reference only).
+  const critCols: string[] = []
+  const critSeen = new Set<string>()
+  for (const r of records) for (const k of Object.keys(r.summary?.criteria_scores_json ?? {})) {
+    if (!critSeen.has(k)) { critSeen.add(k); critCols.push(k) }
+  }
+
+  const headers = [
+    'Master Category', 'Category', 'Nomination Id', 'Nominee Name', 'Company', 'Designation',
+    'Completion Status', 'Rank',
+    ...rawCols,
+    'Editorial Summary', 'Editorial Notes', 'Strategic Feedback',
+    ...critCols.map((c) => `${REF}${c}`),
+    `${REF}AI Total Score`, `${REF}AI Qualifies`,
+    'Judge 1', 'Judge 1 Score', 'Judge 2', 'Judge 2 Score', 'Final Average', 'Jury Comments',
+  ]
+
+  // Sort: complete (by rank) first, then incomplete.
+  const ordered = [...records].sort((a, b) => {
+    if (a.complete !== b.complete) return a.complete ? -1 : 1
+    return (a.rank ?? 9999) - (b.rank ?? 9999)
+  })
+
+  const aoa = ordered.map((r) => {
+    const f = flattenRaw(r.nom.raw_data_json)
+    const j1 = r.jurorResults[0]
+    const j2 = r.jurorResults[1]
+    const comments = r.jurorResults.map((j) => j.comment).filter(Boolean).join(' | ')
+    return [
+      r.nom.master_category,
+      categoryLabel(r.nom.category_key),
+      r.nom.nomination_id,
+      r.nom.nominee_name,
+      r.nom.company,
+      r.nom.designation ?? '',
+      r.complete ? 'Complete' : 'Incomplete',
+      r.rank != null ? `${r.rank}${r.tied ? ' (tie)' : ''}` : '',
+      ...rawCols.map((c) => f[c] ?? ''),
+      r.summary?.summary ?? '',
+      r.summary?.jury_notes ?? '',
+      r.summary?.strategic_feedback ?? '',
+      ...critCols.map((c) => r.summary?.criteria_scores_json?.[c] ?? ''),
+      r.summary?.total_score ?? '',
+      r.summary?.qualifies == null ? '' : r.summary.qualifies ? 'Yes' : 'No',
+      j1?.name ?? '',
+      j1 ? j1.total : '',
+      j2?.name ?? '',
+      j2 ? j2.total : '',
+      r.final_score != null ? Number(r.final_score.toFixed(1)) : '',
+      comments,
+    ] as (string | number)[]
+  })
+
+  return { name: sheetName(categoryLabel(categoryKey)), headers, aoa }
+}
+
+// Cross-category final-awards ranking sheet.
+export function rankingsSheet(byCat: Map<string, Assembled[]>): SheetDef {
+  const headers = ['Master Category', 'Category', 'Rank', 'Nominee Name', 'Company', 'Final Average', 'Tie']
+  const aoa: (string | number)[][] = []
+  const cats = [...byCat.keys()].sort()
+  for (const cat of cats) {
+    const complete = byCat.get(cat)!.filter((r) => r.complete).sort((a, b) => (a.rank ?? 0) - (b.rank ?? 0))
+    for (const r of complete) {
+      aoa.push([
+        r.nom.master_category,
+        categoryLabel(cat),
+        r.rank ?? '',
+        r.nom.nominee_name,
+        r.nom.company,
+        r.final_score != null ? Number(r.final_score.toFixed(1)) : '',
+        r.tied ? 'Yes' : '',
+      ])
+    }
+  }
+  return { name: 'Rankings', headers, aoa }
+}
+
+// Juror-centric scorecard: one row per juror × assigned nomination + a summary sheet.
+export function scorecardSheets(data: ExportData): SheetDef[] {
+  const jurorMap = new Map(data.jurors.map((j) => [j.id, j.name]))
+  const nomMap = new Map(data.nominations.map((n) => [n.id, n]))
+  const latest = new Map<string, ExportScore>()
+  for (const s of data.scores) {
+    const k = `${s.nomination_id}:${s.juror_id}`
+    if (!latest.has(k)) latest.set(k, s)
+  }
+
+  const detailHeaders = ['Jury Member', 'Nomination Id', 'Nominee', 'Category', 'Status', 'Score Given', 'Comments']
+  const detail: (string | number)[][] = []
+  const summaryCount = new Map<string, { assigned: number; submitted: number }>()
+
+  for (const a of data.assignments) {
+    const nom = nomMap.get(a.nomination_id)
+    if (!nom) continue
+    const jurorName = jurorMap.get(a.juror_id) ?? 'Unknown'
+    const sc = latest.get(`${a.nomination_id}:${a.juror_id}`)
+    const submitted = a.status === 'scored'
+    detail.push([
+      jurorName,
+      nom.nomination_id,
+      nom.nominee_name,
+      categoryLabel(nom.category_key),
+      submitted ? 'Submitted' : 'Pending',
+      submitted && sc ? sc.total_score : '',
+      sc?.comment ?? '',
+    ])
+    const agg = summaryCount.get(jurorName) ?? { assigned: 0, submitted: 0 }
+    agg.assigned++
+    if (submitted) agg.submitted++
+    summaryCount.set(jurorName, agg)
+  }
+
+  detail.sort((a, b) => String(a[0]).localeCompare(String(b[0])))
+
+  const summaryHeaders = ['Jury Member', 'Assigned', 'Submitted', 'Pending']
+  const summaryAoa = [...summaryCount.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([name, c]) => [name, c.assigned, c.submitted, c.assigned - c.submitted] as (string | number)[])
+
+  return [
+    { name: 'Summary', headers: summaryHeaders, aoa: summaryAoa },
+    { name: 'Scorecard', headers: detailHeaders, aoa: detail },
+  ]
+}
+
+// Excel sheet names: max 31 chars, no : \ / ? * [ ]
+export function sheetName(label: string): string {
+  return label.replace(/[:\\/?*[\]]/g, ' ').slice(0, 31).trim() || 'Sheet'
+}
