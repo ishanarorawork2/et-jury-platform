@@ -40,9 +40,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Not assigned to this nomination' }, { status: 403 })
   }
 
-  // total_score = sum of all criteria scores
-  const total_score = Object.values(criteria_scores_json)
-    .reduce((sum, v) => sum + (Number(v) || 0), 0)
+  // total_score = average (mean) of all criteria scores, on a 0–100 scale
+  const criteriaValues = Object.values(criteria_scores_json)
+  const total_score = criteriaValues.length > 0
+    ? Math.round((criteriaValues.reduce((sum, v) => sum + (Number(v) || 0), 0) / criteriaValues.length) * 10) / 10
+    : 0
 
   // Next version number (scores are append-only)
   const { data: lastScore } = await supabase

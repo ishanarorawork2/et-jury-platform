@@ -59,7 +59,9 @@ export default function ScoringForm({ nominationId, rubric, existingScore }: Pro
     try { localStorage.setItem(draftKey, JSON.stringify({ scores, comment })) } catch { /* quota */ }
   }, [scores, comment, draftKey])
 
-  const computedTotal = rubric.reduce((sum, c) => sum + (Number(scores[c.key]) || 0), 0)
+  const computedTotal = rubric.length > 0
+    ? Math.round((rubric.reduce((sum, c) => sum + (Number(scores[c.key]) || 0), 0) / rubric.length) * 10) / 10
+    : 0
   const allFilled = rubric.length > 0 && rubric.every(c => scores[c.key] !== '')
 
   const handleChange = (key: string, raw: string) => {
