@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server'
+﻿import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 
 export async function POST(req: NextRequest) {
@@ -72,7 +72,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Mark assignment as scored (uses service role to bypass RLS — jurors have no UPDATE policy)
-  const service = await createServiceClient()
+  const service = createServiceClient()
   await service
     .from('assignments')
     .update({ status: 'scored' })

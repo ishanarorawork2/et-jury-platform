@@ -1,7 +1,10 @@
-import { createClient, createServiceClient } from '@/lib/supabase/server'
+﻿import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
+import { Download, FileSpreadsheet } from 'lucide-react'
 import { PageHeader } from '@/components/ui/page-header'
+import { Button } from '@/components/ui/button'
 import ResultsBrowser, { type ResultRow } from '@/components/admin/ResultsBrowser'
+import { RefreshButton } from '@/components/ui/refresh-button'
 
 type JurorScore = { juror_id: string; juror_name: string; total_score: number }
 
@@ -91,7 +94,7 @@ export default async function AdminResultsPage() {
   const { data: profile } = await supabase.from('jury_users').select('role').eq('id', user.id).single()
   if (profile?.role !== 'admin') redirect('/dashboard')
 
-  const service = await createServiceClient()
+  const service = createServiceClient()
 
   const [{ data: nominations }, { data: assignments }, { data: scores }, { data: jurors }] = await Promise.all([
     service.from('nominations').select('id, nomination_id, nominee_name, company, master_category, category_key').order('nominee_name'),
@@ -112,29 +115,26 @@ export default async function AdminResultsPage() {
   const totalTied = allRows.filter(r => r.tied).length
 
   return (
-    <div className="mx-auto max-w-6xl">
+    <div className="mx-auto max-w-[80rem]">
       <PageHeader
         title="Results & Rankings"
         description={
           <>
             {totalComplete} complete · {allRows.length - totalComplete} incomplete
-            {totalTied > 0 && <span className="ml-2 text-amber-600">{totalTied} tied nominations</span>}
+            {totalTied > 0 && <span className="ml-2 text-warning">· {totalTied} tied nominations</span>}
           </>
         }
         actions={
           <div className="flex gap-2">
-            <a
-              href="/api/admin/results/export?scope=scorecard"
-              className="inline-flex h-8 items-center rounded-lg border border-border px-4 text-sm font-medium text-foreground transition-colors hover:bg-muted"
-            >
+            <RefreshButton />
+            <Button variant="outline" render={<a href="/api/admin/results/export?scope=scorecard" />}>
+              <FileSpreadsheet className="size-4" />
               Jury Scorecard
-            </a>
-            <a
-              href="/api/admin/results/export?scope=all"
-              className="inline-flex h-8 items-center rounded-lg bg-foreground px-4 text-sm font-medium text-background transition-colors hover:opacity-90"
-            >
-              Final Awards (.xlsx)
-            </a>
+            </Button>
+            <Button render={<a href="/api/admin/results/export?scope=all" />}>
+              <Download className="size-4" />
+              Final Awards
+            </Button>
           </div>
         }
       />

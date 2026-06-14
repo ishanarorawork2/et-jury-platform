@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useState } from 'react'
 import { X, ChevronLeft, ChevronRight } from 'lucide-react'
 import NominationReview, { type ReviewData } from './NominationReview'
+import { Skeleton } from '@/components/ui/skeleton'
 
 type OpenFn = (ids: string[], id: string) => void
 const ReviewModalContext = createContext<OpenFn | null>(null)
@@ -75,9 +76,12 @@ export default function ReviewModalProvider({ children }: { children: React.Reac
     <ReviewModalContext.Provider value={open}>
       {children}
       {isOpen && (
-        <div className="fixed inset-0 z-50 flex flex-col bg-black/40 p-3 sm:p-6" onClick={close}>
+        <div
+          className="fixed inset-0 z-50 flex flex-col bg-foreground/30 p-3 backdrop-blur-[2px] sm:p-6"
+          onClick={close}
+        >
           <div
-            className="mx-auto flex h-full w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-border bg-background shadow-2xl"
+            className="mx-auto flex h-full w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-[var(--shadow-xl)]"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Toolbar */}
@@ -86,29 +90,48 @@ export default function ReviewModalProvider({ children }: { children: React.Reac
                 <button
                   onClick={goPrev}
                   disabled={index <= 0}
-                  className="inline-flex size-8 items-center justify-center rounded-md border border-border text-muted-foreground hover:bg-muted disabled:opacity-40"
+                  className="inline-flex size-8 items-center justify-center rounded-lg border border-border text-muted-foreground outline-none transition-colors hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-40"
                   title="Previous (←)"
                 ><ChevronLeft className="size-4" /></button>
                 <button
                   onClick={goNext}
                   disabled={index >= ids.length - 1}
-                  className="inline-flex size-8 items-center justify-center rounded-md border border-border text-muted-foreground hover:bg-muted disabled:opacity-40"
+                  className="inline-flex size-8 items-center justify-center rounded-lg border border-border text-muted-foreground outline-none transition-colors hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-40"
                   title="Next (→)"
                 ><ChevronRight className="size-4" /></button>
-                <span className="ml-1 text-xs text-muted-foreground">{index + 1} of {ids.length}</span>
+                <span className="ml-1 text-xs tabular-nums text-muted-foreground">
+                  {index + 1} of {ids.length}
+                </span>
               </div>
               <button
                 onClick={close}
-                className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted"
+                className="inline-flex size-8 items-center justify-center rounded-lg text-muted-foreground outline-none transition-colors hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50"
                 title="Close (Esc)"
               ><X className="size-4" /></button>
             </div>
 
             {/* Body */}
             <div className="flex-1 overflow-y-auto p-5 sm:p-8">
-              {error && <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>}
-              {loading && !data && <p className="text-sm text-muted-foreground">Loading…</p>}
-              {data && currentId && <NominationReview key={currentId} data={data} />}
+              {error && (
+                <div className="rounded-lg border border-danger-border bg-danger-subtle p-4 text-sm text-danger">
+                  {error}
+                </div>
+              )}
+              {loading && !data && (
+                <div className="space-y-6">
+                  <div className="space-y-2">
+                    <Skeleton className="h-7 w-64" />
+                    <Skeleton className="h-4 w-40" />
+                  </div>
+                  <Skeleton className="h-9 w-80" />
+                  <div className="space-y-3">
+                    <Skeleton className="h-24 w-full" />
+                    <Skeleton className="h-24 w-full" />
+                    <Skeleton className="h-24 w-full" />
+                  </div>
+                </div>
+              )}
+              {data && currentId && <NominationReview key={currentId} data={data} layout="modal" />}
             </div>
           </div>
         </div>

@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server'
+﻿import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 
 async function requireAdmin() {
@@ -14,7 +14,7 @@ export async function GET() {
   const admin = await requireAdmin()
   if (!admin) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const service = await createServiceClient()
+  const service = createServiceClient()
   const { data, error } = await service
     .from('conflicts')
     .select('id, juror_id, company')
@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'juror_id and company are required' }, { status: 400 })
   }
 
-  const service = await createServiceClient()
+  const service = createServiceClient()
   const { data, error } = await service
     .from('conflicts')
     .insert({ juror_id, company: company.trim() })

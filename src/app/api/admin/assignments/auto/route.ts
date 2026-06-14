@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server'
+﻿import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 
 async function requireAdmin() {
@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  const service = await createServiceClient()
+  const service = createServiceClient()
 
   const [{ data: nominations }, { data: allConflicts }] = await Promise.all([
     service

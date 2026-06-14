@@ -1,4 +1,4 @@
-import { createServiceClient } from '@/lib/supabase/server'
+﻿import { createServiceClient } from '@/lib/supabase/server'
 import { normalizeStr } from './join'
 
 export interface CategoryEntryResolved {
@@ -18,7 +18,7 @@ export interface CategoryMapping {
 // Loads category_mapping once and returns case-insensitive lookup helpers.
 // Used by both the raw and audited import phases.
 export async function loadCategoryMapping(): Promise<CategoryMapping> {
-  const supabase = await createServiceClient()
+  const supabase = createServiceClient()
   const { data, error } = await supabase
     .from('category_mapping')
     .select('raw_label, normalized_key, master_category')

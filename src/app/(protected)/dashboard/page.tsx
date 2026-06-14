@@ -37,24 +37,26 @@ export default async function DashboardPage() {
     .eq('juror_id', user.id)
     .order('assigned_at', { ascending: true })
 
-  const nominationIds = (assignments ?? [])
-    .map((a: any) => (a.nominations as any)?.id)
-    .filter(Boolean) as string[]
-
-  const { data: scores } = nominationIds.length > 0
-    ? await supabase
-        .from('scores')
-        .select('nomination_id, total_score')
-        .eq('juror_id', user.id)
-        .in('nomination_id', nominationIds)
-    : { data: [] }
+  // Fetch all scores for this juror (ordered ASC so Map ends up with highest version per nomination).
+  const { data: scores } = await supabase
+    .from('scores')
+    .select('nomination_id, total_score')
+    .eq('juror_id', user.id)
+    .order('version', { ascending: true })
 
   const scoreMap = new Map(
-    (scores ?? []).map((s: any) => [s.nomination_id as string, s.total_score as number])
+    (scores ?? []).map((s) => [s.nomination_id as string, s.total_score as number])
   )
 
-  const rows: AssignmentRow[] = (assignments ?? []).map((a: any) => {
-    const nom = a.nominations as any
+  const rows: AssignmentRow[] = (assignments ?? []).map((a) => {
+    const nom = (Array.isArray(a.nominations) ? a.nominations[0] : a.nominations) as {
+      id?: string
+      nomination_id?: string
+      nominee_name?: string
+      company?: string
+      master_category?: string
+      category_key?: string
+    } | null
     return {
       id: a.id,
       status: a.status,
@@ -64,7 +66,7 @@ export default async function DashboardPage() {
       company: nom?.company ?? '',
       master_category: nom?.master_category ?? '',
       category_key: nom?.category_key ?? '',
-      score: scoreMap.get(nom?.id) ?? null,
+      score: scoreMap.get(nom?.id ?? '') ?? null,
     }
   })
 

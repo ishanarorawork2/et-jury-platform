@@ -18,7 +18,7 @@ export async function DELETE(
   if (!admin) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { id } = await params
-  const service = await createServiceClient()
+  const service = createServiceClient()
 
   await service.from('jury_users').delete().eq('id', id)
   await service.auth.admin.deleteUser(id)

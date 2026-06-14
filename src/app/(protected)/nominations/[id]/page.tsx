@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { notFound, redirect } from 'next/navigation'
 import Link from 'next/link'
+import { ArrowLeft } from 'lucide-react'
 import NominationReview, { type ReviewData, type Criterion } from '@/components/nomination/NominationReview'
 
 type Params = Promise<{ id: string }>
@@ -65,11 +66,15 @@ export default async function NominationDetailPage({ params }: { params: Params 
   }
 
   return (
-    <div className="mx-auto max-w-5xl">
-      <Link href={backHref} className="mb-6 inline-flex items-center text-sm text-muted-foreground transition-colors hover:text-foreground">
-        ← Back
+    <div className="mx-auto max-w-[80rem]">
+      <Link
+        href={backHref}
+        className="mb-6 inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <ArrowLeft className="size-4" />
+        Back
       </Link>
-      <NominationReview data={data} />
+      <NominationReview data={data} layout="page" />
     </div>
   )
 }

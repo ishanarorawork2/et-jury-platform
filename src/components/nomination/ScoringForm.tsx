@@ -1,7 +1,11 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { CheckCircle2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Meter } from '@/components/ui/meter'
+import { toast } from '@/lib/toast'
 
 type Criterion = {
   key: string
@@ -25,6 +29,7 @@ type Props = {
 }
 
 export default function ScoringForm({ nominationId, rubric, existingScore }: Props) {
+  const router = useRouter()
   const initScores = (): Record<string, number | ''> => {
     const map: Record<string, number | ''> = {}
     for (const c of rubric) {
@@ -91,7 +96,9 @@ export default function ScoringForm({ nominationId, rubric, existingScore }: Pro
 
     if (!res.ok) {
       setSubmitError(data.error ?? 'Submission failed. Please try again.')
+      toast.error('Submission failed', { description: data.error ?? 'Please try again.' })
     } else {
+      const wasUpdate = !!lastSubmission
       setLastSubmission({
         criteria_scores_json: criteriaJson,
         total_score: data.total_score,
@@ -100,6 +107,10 @@ export default function ScoringForm({ nominationId, rubric, existingScore }: Pro
         submitted_at: new Date().toISOString(),
       })
       try { localStorage.removeItem(draftKey) } catch { /* ignore */ }
+      toast.success(wasUpdate ? 'Scores updated' : 'Scores submitted', {
+        description: `Total score ${data.total_score} recorded (version ${data.version}).`,
+      })
+      router.refresh()
     }
   }
 
@@ -111,12 +122,18 @@ export default function ScoringForm({ nominationId, rubric, existingScore }: Pro
     )
   }
 
+  const filledCount = rubric.filter(c => scores[c.key] !== '').length
+
   return (
     <div className="space-y-5">
       {lastSubmission && (
-        <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-          <span className="font-medium">Version {lastSubmission.version} submitted</span>
-          {' '}— {new Date(lastSubmission.submitted_at).toLocaleString()}. You can update your scores below; each submission appends a new version.
+        <div className="flex items-start gap-2.5 rounded-lg border border-success-border bg-success-subtle px-4 py-3 text-sm text-success">
+          <CheckCircle2 className="mt-0.5 size-4 shrink-0" />
+          <span>
+            <span className="font-medium">Version {lastSubmission.version} submitted</span> —{' '}
+            {new Date(lastSubmission.submitted_at).toLocaleString()}. You can update your scores
+            below; each submission appends a new version.
+          </span>
         </div>
       )}
 
@@ -124,25 +141,36 @@ export default function ScoringForm({ nominationId, rubric, existingScore }: Pro
         {rubric.map(criterion => (
           <div key={criterion.key} className="card-surface flex items-center gap-4 px-4 py-3">
             <span className="flex-1 text-sm font-medium text-foreground">{criterion.label}</span>
-            <span className="text-xs text-muted-foreground">{criterion.min}–{criterion.max}</span>
+            <span className="text-xs tabular-nums text-muted-foreground">
+              {criterion.min}–{criterion.max}
+            </span>
             <input
               type="number"
               min={criterion.min}
               max={criterion.max}
               value={scores[criterion.key]}
               onChange={e => handleChange(criterion.key, e.target.value)}
-              className="w-20 rounded-md border border-input bg-card px-2 py-1.5 text-center text-sm font-semibold transition-colors focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/30"
+              className="w-20 rounded-lg border border-input bg-background px-2 py-1.5 text-center text-sm font-semibold tabular-nums outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
               placeholder="—"
             />
           </div>
         ))}
       </div>
 
-      <div className="flex items-center justify-between rounded-lg border border-border bg-muted/60 px-4 py-3">
-        <span className="text-sm font-medium text-muted-foreground">Total Score</span>
-        <span className={`text-lg font-bold ${allFilled ? 'text-foreground' : 'text-muted-foreground'}`}>
-          {computedTotal}
-        </span>
+      <div className="rounded-xl border border-border bg-muted/40 px-4 py-3.5">
+        <div className="flex items-center justify-between">
+          <span className="text-sm font-medium text-muted-foreground">Total score</span>
+          <span className={`text-2xl font-semibold tabular-nums ${allFilled ? 'text-foreground' : 'text-muted-foreground'}`}>
+            {computedTotal}
+            <span className="text-sm font-normal text-muted-foreground">/100</span>
+          </span>
+        </div>
+        <div className="mt-2.5">
+          <Meter value={computedTotal} tone={allFilled ? 'primary' : 'neutral'} />
+        </div>
+        <p className="mt-2 text-xs text-muted-foreground">
+          Mean of {rubric.length} criteria · {filledCount} of {rubric.length} scored
+        </p>
       </div>
 
       <div>
@@ -153,14 +181,12 @@ export default function ScoringForm({ nominationId, rubric, existingScore }: Pro
           value={comment}
           onChange={e => setComment(e.target.value)}
           rows={3}
-          className="w-full rounded-md border border-input bg-card px-3 py-2 text-sm transition-colors focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/30"
+          className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
           placeholder="Add any comments or observations…"
         />
       </div>
 
-      {submitError && (
-        <p className="text-sm text-destructive">{submitError}</p>
-      )}
+      {submitError && <p className="text-sm text-destructive">{submitError}</p>}
 
       <Button onClick={handleSubmit} disabled={!allFilled || isSubmitting} size="lg" className="w-full">
         {isSubmitting ? 'Submitting…' : lastSubmission ? 'Update Scores' : 'Submit Scores'}

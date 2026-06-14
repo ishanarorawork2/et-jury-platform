@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server'
+﻿import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 
 async function requireAdmin() {
@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
   const category = searchParams.get('category')
   if (!category) return NextResponse.json({ error: 'category query param required' }, { status: 400 })
 
-  const service = await createServiceClient()
+  const service = createServiceClient()
   // `editorial_summary!inner` restricts to nominations that have a matched summary —
   // only those are eligible for jury assignment.
   const { data, error } = await service
@@ -44,7 +44,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'nomination_id and juror_id are required' }, { status: 400 })
   }
 
-  const service = await createServiceClient()
+  const service = createServiceClient()
 
   const { count } = await service
     .from('assignments')

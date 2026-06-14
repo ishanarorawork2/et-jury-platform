@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server'
+﻿import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { parseAuditedFile } from '@/lib/import/parse'
 import { loadCategoryMapping } from '@/lib/import/mapping'
@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
     const auditedRows = buffers.flatMap((buf) => parseAuditedFile(buf))
 
     const mapping = await loadCategoryMapping()
-    const service = await createServiceClient()
+    const service = createServiceClient()
 
     // Load stored raw nominations to match against.
     const { data: noms, error: nomErr } = await service

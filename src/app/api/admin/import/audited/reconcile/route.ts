@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server'
+﻿import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { similarity } from '@/lib/import/join'
 import type { CandidateNomination } from '@/lib/import/types'
@@ -47,7 +47,7 @@ export async function GET(req: NextRequest) {
   const batchId = new URL(req.url).searchParams.get('batch_id')
   if (!batchId) return NextResponse.json({ error: 'batch_id required' }, { status: 400 })
 
-  const service = await createServiceClient()
+  const service = createServiceClient()
 
   const { data: unmatched, error } = await service
     .from('audited_staging')
@@ -140,7 +140,7 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: 'action and batch_id are required' }, { status: 400 })
   }
 
-  const service = await createServiceClient()
+  const service = createServiceClient()
 
   if (action === 'skip_all') {
     const { data: skipped, error } = await service

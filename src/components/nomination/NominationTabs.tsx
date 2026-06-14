@@ -1,16 +1,13 @@
 'use client'
 
-import { useState } from 'react'
+import { FileText, Sparkles, ClipboardCheck } from 'lucide-react'
 import RawDataView from './RawDataView'
 import EditorialSummaryView, { type EditorialSummary } from './EditorialSummaryView'
 import ScoringForm from './ScoringForm'
+import { Tabs, TabsList, TabsTab, TabsPanel } from '@/components/ui/tabs'
+import { EmptyState } from '@/components/ui/empty-state'
 
-type Criterion = {
-  key: string
-  label: string
-  min: number
-  max: number
-}
+type Criterion = { key: string; label: string; min: number; max: number }
 
 type SubmittedScore = {
   criteria_scores_json: Record<string, number>
@@ -29,50 +26,50 @@ type Props = {
   existingScore: SubmittedScore
 }
 
-const TABS = [
-  { id: 'nomination', label: 'Nomination' },
-  { id: 'summary', label: 'Editorial Summary' },
-  { id: 'evaluation', label: 'Your Evaluation' },
-]
-
-export default function NominationTabs({ rawData, summary, nominationId, role, rubric, existingScore }: Props) {
-  const [active, setActive] = useState('nomination')
-
+export default function NominationTabs({
+  rawData,
+  summary,
+  nominationId,
+  role,
+  rubric,
+  existingScore,
+}: Props) {
   return (
-    <div>
-      <div className="inline-flex gap-1 rounded-lg border border-border bg-muted/60 p-1">
-        {TABS.map(tab => (
-          <button
-            key={tab.id}
-            onClick={() => setActive(tab.id)}
-            className={`rounded-md px-3.5 py-1.5 text-sm font-medium transition-colors ${
-              active === tab.id
-                ? 'bg-card text-foreground shadow-[var(--shadow-card)]'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
+    <Tabs defaultValue="nomination">
+      <TabsList>
+        <TabsTab value="nomination">
+          <FileText className="size-4" />
+          Nomination
+        </TabsTab>
+        <TabsTab value="summary">
+          <Sparkles className="size-4" />
+          Editorial Summary
+        </TabsTab>
+        <TabsTab value="evaluation">
+          <ClipboardCheck className="size-4" />
+          Your Evaluation
+        </TabsTab>
+      </TabsList>
 
       <div className="mt-6">
-        {active === 'nomination' && <RawDataView rawData={rawData} />}
-        {active === 'summary' && <EditorialSummaryView summary={summary} />}
-        {active === 'evaluation' && (
-          role === 'juror' ? (
-            <ScoringForm
-              nominationId={nominationId}
-              rubric={rubric}
-              existingScore={existingScore}
-            />
+        <TabsPanel value="nomination">
+          <RawDataView rawData={rawData} />
+        </TabsPanel>
+        <TabsPanel value="summary">
+          <EditorialSummaryView summary={summary} />
+        </TabsPanel>
+        <TabsPanel value="evaluation">
+          {role === 'juror' ? (
+            <ScoringForm nominationId={nominationId} rubric={rubric} existingScore={existingScore} />
           ) : (
-            <div className="card-surface border-dashed p-12 text-center">
-              <p className="text-sm text-muted-foreground">Scoring is for assigned jurors only.</p>
-            </div>
-          )
-        )}
+            <EmptyState
+              icon={ClipboardCheck}
+              title="Scoring is for assigned jurors"
+              description="Admins can review nomination content and editorial summaries, but scoring is restricted to the two assigned jurors."
+            />
+          )}
+        </TabsPanel>
       </div>
-    </div>
+    </Tabs>
   )
 }

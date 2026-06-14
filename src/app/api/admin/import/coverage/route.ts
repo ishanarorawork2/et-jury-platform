@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server'
+﻿import { NextResponse } from 'next/server'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import type { CoverageSummary } from '@/lib/import/types'
 
@@ -15,7 +15,7 @@ async function requireAdmin(): Promise<boolean> {
 export async function GET() {
   if (!(await requireAdmin())) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const service = await createServiceClient()
+  const service = createServiceClient()
 
   const { data: noms, error: nomErr } = await service.from('nominations').select('master_category')
   if (nomErr) return NextResponse.json({ error: nomErr.message }, { status: 500 })

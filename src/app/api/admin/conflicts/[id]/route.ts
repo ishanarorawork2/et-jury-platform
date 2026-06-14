@@ -18,7 +18,7 @@ export async function DELETE(
   if (!admin) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { id } = await params
-  const service = await createServiceClient()
+  const service = createServiceClient()
   const { error } = await service.from('conflicts').delete().eq('id', id)
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })

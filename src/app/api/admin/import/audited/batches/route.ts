@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server'
+﻿import { NextResponse } from 'next/server'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import type { ImportBatch } from '@/lib/import/types'
 
@@ -14,7 +14,7 @@ async function requireAdmin(): Promise<boolean> {
 export async function GET() {
   if (!(await requireAdmin())) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const service = await createServiceClient()
+  const service = createServiceClient()
   const { data, error } = await service
     .from('import_batches')
     .select('*')

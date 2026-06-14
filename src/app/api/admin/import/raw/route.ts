@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server'
+﻿import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { listRawSheets, parseRawFile } from '@/lib/import/parse'
 import { loadCategoryMapping } from '@/lib/import/mapping'
@@ -94,7 +94,7 @@ export async function POST(req: NextRequest) {
       })
       .filter((x): x is NonNullable<typeof x> => x !== null)
 
-    const service = await createServiceClient()
+    const service = createServiceClient()
     const errors: string[] = []
     let inserted = 0
     const perCategory: Record<string, number> = {}

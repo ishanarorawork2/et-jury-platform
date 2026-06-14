@@ -1,10 +1,13 @@
 'use client'
 
-import { useMemo, useState } from 'react'
-import ReviewLink from '@/components/nomination/ReviewLink'
+import { useMemo } from 'react'
+import { FileX } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
-import { TableShell, Table, THead, TBody, TR, TH, TD } from '@/components/ui/table'
+import { EmptyState } from '@/components/ui/empty-state'
+import { DataGrid, type ColumnDef, type FilterDef } from '@/components/ui/data-grid'
 import { categoryLabel } from '@/lib/categories'
+import { coverageStatus } from '@/lib/status'
+import { useReviewModal } from '@/components/nomination/ReviewModalProvider'
 
 export type BrowserNomination = {
   id: string
@@ -14,124 +17,131 @@ export type BrowserNomination = {
   designation: string | null
   master_category: string
   category_key: string
-  // PostgREST returns this as an object (or null) because editorial_summary.nomination_id
-  // is unique (to-one relation); older/other inferences may return an array.
   editorial_summary: { id: string } | Array<{ id: string }> | null
+  assignments?: Array<{ status: string }> | null
 }
 
 function hasSummary(rel: BrowserNomination['editorial_summary']): boolean {
   return Array.isArray(rel) ? rel.length > 0 : rel != null
 }
 
-const selectClass =
-  'rounded-md border border-input bg-card px-2 py-1.5 text-sm focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/30'
-
 export default function NominationsBrowser({ nominations }: { nominations: BrowserNomination[] }) {
-  const [master, setMaster] = useState('')
-  const [sub, setSub] = useState('')
+  const open = useReviewModal()
 
-  const masters = useMemo(
-    () => Array.from(new Set(nominations.map(n => n.master_category))).sort(),
+  const filters = useMemo<FilterDef[]>(
+    () => [
+      {
+        id: 'master_category',
+        label: 'Category',
+        options: Array.from(new Set(nominations.map((n) => n.master_category)))
+          .sort()
+          .map((m) => ({ value: m, label: m })),
+      },
+      {
+        id: 'category_key',
+        label: 'Sub-category',
+        options: Array.from(new Set(nominations.map((n) => n.category_key)))
+          .sort((a, b) => categoryLabel(a).localeCompare(categoryLabel(b)))
+          .map((k) => ({ value: k, label: categoryLabel(k) })),
+      },
+      {
+        id: 'summary_state',
+        label: 'Summary',
+        options: [
+          { value: 'ready', label: 'Ready' },
+          { value: 'awaiting', label: 'Awaiting' },
+        ],
+      },
+    ],
     [nominations]
   )
-  const subs = useMemo(
-    () => Array.from(
-      new Set(nominations.filter(n => !master || n.master_category === master).map(n => n.category_key))
-    ).sort((a, b) => categoryLabel(a).localeCompare(categoryLabel(b))),
-    [nominations, master]
+
+  // Precompute derived fields so they're filterable/sortable.
+  const rows = useMemo(
+    () =>
+      nominations.map((n) => {
+        const assignedCount = n.assignments?.length ?? 0
+        const scoredCount = n.assignments?.filter((a) => a.status === 'scored').length ?? 0
+        return {
+          ...n,
+          summary_state: hasSummary(n.editorial_summary) ? 'ready' : 'awaiting',
+          _assigned: assignedCount,
+          _scored: scoredCount,
+        }
+      }),
+    [nominations]
   )
 
-  const filtered = useMemo(
-    () => nominations.filter(n =>
-      (!master || n.master_category === master) && (!sub || n.category_key === sub)
-    ),
-    [nominations, master, sub]
+  type RowT = (typeof rows)[number]
+
+  const columns = useMemo<ColumnDef<RowT>[]>(
+    () => [
+      {
+        accessorKey: 'nominee_name',
+        header: 'Nominee',
+        cell: ({ row }) => (
+          <div>
+            <span className="font-medium text-foreground">{row.original.nominee_name}</span>
+            {row.original.designation && (
+              <span className="ml-1.5 text-xs text-muted-foreground">{row.original.designation}</span>
+            )}
+          </div>
+        ),
+      },
+      { accessorKey: 'company', header: 'Company', cell: ({ row }) => <span className="text-muted-foreground">{row.original.company}</span> },
+      { accessorKey: 'master_category', header: 'Category', cell: ({ row }) => <span className="text-muted-foreground">{row.original.master_category}</span> },
+      {
+        accessorKey: 'category_key',
+        header: 'Sub-category',
+        cell: ({ row }) => <span className="text-muted-foreground">{categoryLabel(row.original.category_key)}</span>,
+      },
+      {
+        id: 'coverage',
+        header: 'Assignment',
+        enableSorting: false,
+        cell: ({ row }) => {
+          const { meta } = coverageStatus(row.original._assigned, row.original._scored)
+          return (
+            <Badge variant={meta.variant} dot>
+              {meta.label}
+            </Badge>
+          )
+        },
+      },
+      {
+        accessorKey: 'summary_state',
+        header: 'Summary',
+        cell: ({ row }) =>
+          row.original.summary_state === 'ready' ? (
+            <Badge variant="success">Ready</Badge>
+          ) : (
+            <Badge variant="warning">Awaiting</Badge>
+          ),
+      },
+    ],
+    []
   )
 
-  // Group the filtered set by master category for display.
-  const byCategory = useMemo(() => {
-    const groups: Record<string, BrowserNomination[]> = {}
-    for (const nom of filtered) {
-      ;(groups[nom.master_category] ??= []).push(nom)
-    }
-    return groups
-  }, [filtered])
+  if (nominations.length === 0) {
+    return (
+      <EmptyState
+        icon={FileX}
+        title="No nominations imported yet"
+        description="Import raw nominations and editorial summaries from the Import workspace to populate this view."
+      />
+    )
+  }
 
   return (
-    <>
-      <div className="mb-6 flex flex-wrap items-center gap-4">
-        <div>
-          <label className="mr-2 text-xs text-muted-foreground">Category:</label>
-          <select value={master} onChange={e => { setMaster(e.target.value); setSub('') }} className={selectClass}>
-            <option value="">All categories</option>
-            {masters.map(m => <option key={m} value={m}>{m}</option>)}
-          </select>
-        </div>
-        {subs.length > 1 && (
-          <div>
-            <label className="mr-2 text-xs text-muted-foreground">Sub-category:</label>
-            <select value={sub} onChange={e => setSub(e.target.value)} className={selectClass}>
-              <option value="">All sub-categories</option>
-              {subs.map(k => <option key={k} value={k}>{categoryLabel(k)}</option>)}
-            </select>
-          </div>
-        )}
-        {(master || sub) && (
-          <span className="text-xs text-muted-foreground">{filtered.length} of {nominations.length} shown</span>
-        )}
-      </div>
-
-      {filtered.length === 0 ? (
-        <div className="card-surface border-dashed p-8 text-center">
-          <p className="text-sm text-muted-foreground">No nominations match this filter.</p>
-        </div>
-      ) : (
-        <div className="space-y-10">
-          {Object.entries(byCategory).map(([category, noms]) => {
-            const ids = noms.map(n => n.id)
-            return (
-              <div key={category}>
-                <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  {category} ({noms.length})
-                </h2>
-                <TableShell>
-                  <Table>
-                    <THead>
-                      <tr>
-                        <TH>Nominee</TH>
-                        <TH>Company</TH>
-                        <TH>Sub-category</TH>
-                        <TH className="text-center">Editorial Summary</TH>
-                      </tr>
-                    </THead>
-                    <TBody>
-                      {noms.map(nom => (
-                        <TR key={nom.id}>
-                          <TD>
-                            <ReviewLink id={nom.id} ids={ids} className="font-medium text-primary hover:underline">
-                              {nom.nominee_name}
-                            </ReviewLink>
-                            {nom.designation && (
-                              <span className="ml-1.5 text-xs text-muted-foreground">{nom.designation}</span>
-                            )}
-                          </TD>
-                          <TD className="text-muted-foreground">{nom.company}</TD>
-                          <TD className="text-muted-foreground">{categoryLabel(nom.category_key)}</TD>
-                          <TD className="text-center">
-                            {hasSummary(nom.editorial_summary)
-                              ? <Badge variant="success">✓ Ready</Badge>
-                              : <Badge variant="warning">Awaiting</Badge>}
-                          </TD>
-                        </TR>
-                      ))}
-                    </TBody>
-                  </Table>
-                </TableShell>
-              </div>
-            )
-          })}
-        </div>
-      )}
-    </>
+    <DataGrid
+      data={rows}
+      columns={columns}
+      getRowId={(r) => r.id}
+      searchPlaceholder="Search nominees or companies…"
+      filters={filters}
+      pageSize={25}
+      savedViewsKey="admin-nominations"
+      onRowClick={(row, orderedIds) => open(orderedIds, row.id)}
+    />
   )
 }

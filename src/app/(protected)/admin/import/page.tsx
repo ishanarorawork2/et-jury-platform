@@ -1,12 +1,19 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { CheckCircle2, FileSpreadsheet, Sparkles, Lock, RotateCcw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { PageHeader } from '@/components/ui/page-header'
+import { Badge } from '@/components/ui/badge'
+import { Select } from '@/components/ui/select'
+import { StatCard } from '@/components/ui/stat-card'
+import { Stepper } from '@/components/ui/stepper'
+import { Meter } from '@/components/ui/meter'
+import { DataGrid, type ColumnDef } from '@/components/ui/data-grid'
+import { useConfirm } from '@/components/ui/confirm'
+import { toast } from '@/lib/toast'
 import { CATEGORY_LABELS, categoryLabel } from '@/lib/categories'
 import type { RawSheetSummary, CandidateNomination, ImportBatch, CoverageSummary } from '@/lib/import/types'
-
-// ── Shared bits ────────────────────────────────────────────────────────────────
 
 const CATEGORY_OPTIONS = Object.keys(CATEGORY_LABELS)
 
@@ -18,14 +25,18 @@ function FileInput({ name, inputRef, multiple }: { name: string; inputRef: React
       name={name}
       multiple={multiple}
       accept=".xlsx"
-      className="text-sm text-muted-foreground file:mr-3 file:rounded-md file:border file:border-border file:bg-muted file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-foreground hover:file:bg-muted/70"
+      className="text-sm text-muted-foreground file:mr-3 file:rounded-lg file:border file:border-border file:bg-muted file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-foreground hover:file:bg-muted/70"
     />
   )
 }
 
 function ErrorBox({ msg }: { msg: string | null }) {
   if (!msg) return null
-  return <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{msg}</div>
+  return (
+    <div className="rounded-lg border border-danger-border bg-danger-subtle p-3 text-sm text-danger">
+      {msg}
+    </div>
+  )
 }
 
 // ── Step 1: raw nominations + mapping ───────────────────────────────────────────
@@ -39,6 +50,7 @@ type ParseResp = {
 type CommitResp = { inserted: number; per_category: Record<string, number>; skipped_sheets: string[]; errors: string[] }
 
 function RawStep({ onDone }: { onDone: () => void }) {
+  const confirm = useConfirm()
   const rawRef = useRef<HTMLInputElement>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -68,7 +80,12 @@ function RawStep({ onDone }: { onDone: () => void }) {
     const file = rawRef.current?.files?.[0]
     if (!file) return
     const mapped = Object.values(map).filter(Boolean).length
-    if (!confirm(`Import nominations from ${mapped} mapped sheets? Existing rows with the same Nomination Id are updated.`)) return
+    const ok = await confirm({
+      title: `Import ${mapped} mapped sheets?`,
+      description: 'Existing rows with the same Nomination Id will be updated.',
+      confirmLabel: 'Import',
+    })
+    if (!ok) return
     setLoading(true); setError(null)
     try {
       const fd = new FormData()
@@ -79,67 +96,84 @@ function RawStep({ onDone }: { onDone: () => void }) {
       const json = await res.json()
       if (!res.ok) throw new Error(json.error ?? 'Commit failed')
       setCommitted(json)
+      toast.success('Nominations imported', { description: `${json.inserted} rows written.` })
       onDone()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
+      toast.error('Import failed', { description: e instanceof Error ? e.message : String(e) })
     } finally { setLoading(false) }
   }
 
   const mappedCount = Object.values(map).filter(Boolean).length
+  const unmappedCount = parsed ? parsed.sheets.length - mappedCount : 0
 
   return (
     <div className="card-surface space-y-5 p-6">
       <div>
-        <h2 className="text-base font-semibold text-foreground">Step 1 — Raw nominations</h2>
+        <h2 className="flex items-center gap-2 text-base font-semibold text-foreground">
+          <FileSpreadsheet className="size-4 text-primary" />
+          Raw nominations
+        </h2>
         <p className="mt-1 text-sm text-muted-foreground">
           Upload the raw workbook, confirm how each sheet maps to a category, then import. All rows are
-          stored; a nomination becomes assignable once it has a matched editorial summary (Step 2).
+          stored; a nomination becomes assignable once it has a matched editorial summary.
         </p>
       </div>
 
       <div className="flex items-center gap-3">
         <FileInput name="raw" inputRef={rawRef} />
-        <Button onClick={analyze} disabled={loading}>{loading && !parsed ? 'Analyzing…' : 'Analyze sheets'}</Button>
+        <Button onClick={analyze} disabled={loading}>
+          {loading && !parsed ? 'Analyzing…' : 'Analyze sheets'}
+        </Button>
       </div>
 
       <ErrorBox msg={error} />
 
       {parsed && !committed && (
         <div className="space-y-4">
-          <p className="text-sm text-muted-foreground">
-            {parsed.sheets.length} sheets · {parsed.total_rows} rows. Confirm each mapping (master category is derived):
-          </p>
-          <div className="overflow-x-auto rounded-lg border border-border">
+          <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+            <span>
+              {parsed.sheets.length} sheets · {parsed.total_rows} rows
+            </span>
+            {unmappedCount > 0 && (
+              <Badge variant="warning" dot>
+                {unmappedCount} unmapped — will be skipped
+              </Badge>
+            )}
+          </div>
+          <div className="overflow-x-auto rounded-xl border border-border">
             <table className="min-w-full text-sm">
               <thead className="bg-muted/60 text-xs font-medium uppercase text-muted-foreground">
                 <tr>
-                  <th className="px-4 py-2 text-left">Sheet</th>
-                  <th className="px-4 py-2 text-right">Rows</th>
-                  <th className="px-4 py-2 text-left">Category</th>
-                  <th className="px-4 py-2 text-left">Master category</th>
+                  <th className="px-4 py-2.5 text-left">Sheet</th>
+                  <th className="px-4 py-2.5 text-right">Rows</th>
+                  <th className="px-4 py-2.5 text-left">Category</th>
+                  <th className="px-4 py-2.5 text-left">Master category</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
                 {parsed.sheets.map((s) => {
                   const key = map[s.sheet_name] ?? ''
                   return (
-                    <tr key={s.sheet_name} className={key ? '' : 'bg-amber-50/50'}>
+                    <tr key={s.sheet_name} className={key ? '' : 'bg-warning-subtle/40'}>
                       <td className="px-4 py-2 font-mono text-xs text-foreground">{s.sheet_name}</td>
-                      <td className="px-4 py-2 text-right text-muted-foreground">{s.row_count}</td>
+                      <td className="px-4 py-2 text-right tabular-nums text-muted-foreground">{s.row_count}</td>
                       <td className="px-4 py-2">
-                        <select
+                        <Select
+                          size="sm"
+                          aria-label={`Category for ${s.sheet_name}`}
                           value={key}
-                          onChange={(e) => setMap((m) => ({ ...m, [s.sheet_name]: e.target.value }))}
-                          className="rounded-md border border-input bg-card px-2 py-1 text-sm"
-                        >
-                          <option value="">— skip this sheet —</option>
-                          {CATEGORY_OPTIONS.map((k) => (
-                            <option key={k} value={k}>{categoryLabel(k)}</option>
-                          ))}
-                        </select>
+                          onValueChange={(v) => setMap((m) => ({ ...m, [s.sheet_name]: v }))}
+                          placeholder="— skip this sheet —"
+                          options={[
+                            { value: '', label: '— skip this sheet —' },
+                            ...CATEGORY_OPTIONS.map((k) => ({ value: k, label: categoryLabel(k) })),
+                          ]}
+                          className="w-56"
+                        />
                       </td>
                       <td className="px-4 py-2 text-xs text-muted-foreground">
-                        {key ? parsed.key_master[key] ?? '—' : <span className="text-amber-600">will be skipped</span>}
+                        {key ? (parsed.key_master[key] ?? '—') : <span className="text-warning">will be skipped</span>}
                       </td>
                     </tr>
                   )
@@ -154,14 +188,19 @@ function RawStep({ onDone }: { onDone: () => void }) {
       )}
 
       {committed && (
-        <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
-          <strong>{committed.inserted} nominations imported.</strong>
-          {committed.skipped_sheets.length > 0 && (
-            <span className="ml-1 text-muted-foreground">Skipped sheets: {committed.skipped_sheets.join(', ')}.</span>
-          )}
-          {committed.errors.length > 0 && (
-            <ul className="mt-2 list-disc pl-5 text-red-600">{committed.errors.map((e, i) => <li key={i}>{e}</li>)}</ul>
-          )}
+        <div className="flex items-start gap-2.5 rounded-lg border border-success-border bg-success-subtle p-4 text-sm text-success">
+          <CheckCircle2 className="mt-0.5 size-4 shrink-0" />
+          <div>
+            <strong>{committed.inserted} nominations imported.</strong>
+            {committed.skipped_sheets.length > 0 && (
+              <span className="ml-1 text-muted-foreground">Skipped: {committed.skipped_sheets.join(', ')}.</span>
+            )}
+            {committed.errors.length > 0 && (
+              <ul className="mt-2 list-disc pl-5 text-danger">
+                {committed.errors.map((e, i) => <li key={i}>{e}</li>)}
+              </ul>
+            )}
+          </div>
         </div>
       )}
     </div>
@@ -199,7 +238,8 @@ type DuplicateRow = {
   locked: boolean
 }
 
-function AuditedStep() {
+function AuditedStep({ onFinalized }: { onFinalized: () => void }) {
+  const confirm = useConfirm()
   const filesRef = useRef<HTMLInputElement>(null)
 
   const [loading, setLoading] = useState(false)
@@ -215,13 +255,14 @@ function AuditedStep() {
 
   const refreshSidecars = useCallback(async () => {
     const [cov, bat] = await Promise.all([
-      fetch('/api/admin/import/coverage').then((r) => r.ok ? r.json() : null).catch(() => null),
-      fetch('/api/admin/import/audited/batches').then((r) => r.ok ? r.json() : null).catch(() => null),
+      fetch('/api/admin/import/coverage').then((r) => (r.ok ? r.json() : null)).catch(() => null),
+      fetch('/api/admin/import/audited/batches').then((r) => (r.ok ? r.json() : null)).catch(() => null),
     ])
     if (cov) setCoverage(cov)
     if (bat) setBatches(bat.batches)
   }, [])
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { refreshSidecars() }, [refreshSidecars])
 
   async function loadReconcile(batchId: string) {
@@ -248,8 +289,12 @@ function AuditedStep() {
       setStage(json)
       await loadReconcile(json.batch_id)
       await refreshSidecars()
+      toast.success('Staged & matched', {
+        description: `${json.matched} matched · ${json.unmatched} unmatched · ${json.duplicates} duplicates.`,
+      })
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
+      toast.error('Staging failed', { description: e instanceof Error ? e.message : String(e) })
     } finally { setLoading(false) }
   }
 
@@ -274,7 +319,12 @@ function AuditedStep() {
       .map((r) => ({ id: r.id, nomination_id: picks[r.id] }))
       .filter((m) => m.nomination_id)
     if (matches.length === 0) { setError('No unmatched rows have a candidate to match.'); return }
-    if (!confirm(`Match ${matches.length} rows to their selected nomination? Rows whose pick collides with another stay unmatched.`)) return
+    const ok = await confirm({
+      title: `Match ${matches.length} rows?`,
+      description: 'Each row is matched to its selected nomination. Rows whose pick collides with another stay unmatched.',
+      confirmLabel: 'Match all',
+    })
+    if (!ok) return
     const res = await fetch('/api/admin/import/audited/reconcile', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -286,11 +336,18 @@ function AuditedStep() {
     setCounts(json.counts)
     const matched = new Set<string>(json.matched_ids ?? [])
     setRows((rs) => rs.filter((r) => !matched.has(r.id)))
+    toast.success(`${matched.size} rows matched`)
   }
 
   async function skipAll() {
     if (!stage) return
-    if (!confirm(`Skip all ${rows.length} unmatched rows? They'll be excluded from this import.`)) return
+    const ok = await confirm({
+      title: `Skip all ${rows.length} unmatched rows?`,
+      description: "They'll be excluded from this import.",
+      confirmLabel: 'Skip all',
+      variant: 'destructive',
+    })
+    if (!ok) return
     const res = await fetch('/api/admin/import/audited/reconcile', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -305,7 +362,12 @@ function AuditedStep() {
 
   async function replaceAll() {
     if (!stage) return
-    if (!confirm('Replace all unlocked duplicates? Existing summaries will be overwritten at finalize.')) return
+    const ok = await confirm({
+      title: 'Replace all unlocked duplicates?',
+      description: 'Existing summaries will be overwritten at finalize.',
+      confirmLabel: 'Replace all',
+    })
+    if (!ok) return
     const res = await fetch('/api/admin/import/audited/reconcile', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -315,12 +377,17 @@ function AuditedStep() {
     if (!res.ok) { setError(json.error ?? 'Update failed'); return }
     setError(null)
     setCounts(json.counts)
-    setDuplicates((ds) => ds.filter((d) => d.locked)) // unlocked ones are now matched
+    setDuplicates((ds) => ds.filter((d) => d.locked))
   }
 
   async function finalize() {
     if (!stage) return
-    if (!confirm('Commit all matched editorial summaries? This writes to the live platform.')) return
+    const ok = await confirm({
+      title: 'Commit editorial summaries?',
+      description: 'This writes matched summaries to the live platform. Matched nominations become assignable.',
+      confirmLabel: 'Finalize',
+    })
+    if (!ok) return
     setLoading(true); setError(null)
     try {
       const res = await fetch('/api/admin/import/audited/finalize', {
@@ -332,8 +399,11 @@ function AuditedStep() {
       if (!res.ok) throw new Error(json.error ?? 'Finalize failed')
       setFinalized({ committed: json.committed, locked_dropped: json.locked_dropped ?? 0 })
       await refreshSidecars()
+      onFinalized()
+      toast.success('Editorial summaries committed', { description: `${json.committed} summaries are now live.` })
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
+      toast.error('Finalize failed', { description: e instanceof Error ? e.message : String(e) })
     } finally { setLoading(false) }
   }
 
@@ -346,36 +416,33 @@ function AuditedStep() {
 
       <div className="card-surface space-y-5 p-6">
         <div>
-          <h2 className="text-base font-semibold text-foreground">Step 2 — Editorial summaries</h2>
+          <h2 className="flex items-center gap-2 text-base font-semibold text-foreground">
+            <Sparkles className="size-4 text-primary" />
+            Editorial summaries
+          </h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Upload any number of audited files — one now, more later. Each row&apos;s category and master
-            category are auto-detected, and each is matched to a stored nomination by name, company and
-            category. Rows that already have a summary are flagged as duplicates and excluded; only
-            unmatched rows block finalize. No existing summary is ever overwritten automatically.
+            Upload any number of audited files — each row&apos;s category is auto-detected and matched to a
+            stored nomination by name, company and category. Rows that already have a summary are flagged as
+            duplicates and excluded; only unmatched rows block finalize.
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
           <FileInput name="files" inputRef={filesRef} multiple />
-          <Button onClick={runStage} disabled={loading}>{loading && !stage ? 'Matching…' : 'Stage & auto-match'}</Button>
+          <Button onClick={runStage} disabled={loading}>
+            {loading && !stage ? 'Matching…' : 'Stage & auto-match'}
+          </Button>
         </div>
 
         <ErrorBox msg={error} />
 
         {stage && counts && (
-          <div className="grid grid-cols-2 gap-3 text-center sm:grid-cols-5">
-            {[
-              { label: 'Audited rows', value: stage.total_audited },
-              { label: 'Matched', value: counts.matched, cls: 'text-emerald-700' },
-              { label: 'Duplicates', value: counts.duplicate, cls: counts.duplicate > 0 ? 'text-amber-600' : 'text-muted-foreground' },
-              { label: 'Unmatched', value: counts.unmatched, cls: counts.unmatched > 0 ? 'text-orange-600' : 'text-emerald-700' },
-              { label: 'Skipped', value: counts.skipped, cls: 'text-muted-foreground' },
-            ].map((c) => (
-              <div key={c.label} className="rounded-lg border border-border bg-muted/40 p-3">
-                <div className={`text-2xl font-bold ${c.cls ?? 'text-foreground'}`}>{c.value}</div>
-                <div className="mt-0.5 text-xs text-muted-foreground">{c.label}</div>
-              </div>
-            ))}
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+            <StatCard label="Audited rows" value={stage.total_audited} tone="neutral" />
+            <StatCard label="Matched" value={counts.matched} tone="success" emphasis />
+            <StatCard label="Duplicates" value={counts.duplicate} tone={counts.duplicate > 0 ? 'warning' : 'neutral'} />
+            <StatCard label="Unmatched" value={counts.unmatched} tone={counts.unmatched > 0 ? 'danger' : 'success'} emphasis={counts.unmatched > 0} />
+            <StatCard label="Skipped" value={counts.skipped} tone="neutral" />
           </div>
         )}
 
@@ -384,14 +451,8 @@ function AuditedStep() {
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h3 className="text-sm font-semibold text-foreground">Resolve unmatched rows ({rows.length})</h3>
               <div className="flex items-center gap-2">
-                <button
-                  onClick={matchAll}
-                  className="rounded-md bg-emerald-600 px-3 py-1 text-xs font-medium text-white hover:bg-emerald-700"
-                >Match all to top candidate</button>
-                <button
-                  onClick={skipAll}
-                  className="rounded-md border border-border px-3 py-1 text-xs font-medium text-muted-foreground hover:bg-muted"
-                >Skip all</button>
+                <Button size="sm" onClick={matchAll}>Match all to top candidate</Button>
+                <Button size="sm" variant="outline" onClick={skipAll}>Skip all</Button>
               </div>
             </div>
             {rows.map((r) => (
@@ -409,12 +470,12 @@ function AuditedStep() {
         {duplicates.length > 0 && (
           <div className="space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <h3 className="text-sm font-semibold text-foreground">Duplicates (excluded) ({duplicates.length})</h3>
+              <h3 className="text-sm font-semibold text-foreground">Duplicates excluded ({duplicates.length})</h3>
               {duplicates.length - lockedDupes > 0 && (
-                <button
-                  onClick={replaceAll}
-                  className="rounded-md border border-amber-300 bg-amber-50 px-3 py-1 text-xs font-medium text-amber-800 hover:bg-amber-100"
-                >Replace all {duplicates.length - lockedDupes} unlocked in this batch</button>
+                <Button size="sm" variant="outline" onClick={replaceAll}>
+                  <RotateCcw className="size-3.5" />
+                  Replace {duplicates.length - lockedDupes} unlocked
+                </Button>
               )}
             </div>
             <p className="text-xs text-muted-foreground">
@@ -429,16 +490,23 @@ function AuditedStep() {
 
         {stage && !finalized && (
           <Button onClick={finalize} disabled={loading || !canFinalize}>
-            {loading ? 'Finalizing…' : canFinalize ? `Finalize ${counts?.matched ?? 0} editorial summaries` : `${counts?.unmatched ?? 0} unmatched — resolve to finalize`}
+            {loading
+              ? 'Finalizing…'
+              : canFinalize
+                ? `Finalize ${counts?.matched ?? 0} editorial summaries`
+                : `${counts?.unmatched ?? 0} unmatched — resolve to finalize`}
           </Button>
         )}
 
         {finalized && (
-          <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
-            <strong>{finalized.committed} editorial summaries committed.</strong> Matched nominations are now assignable.
-            {finalized.locked_dropped > 0 && (
-              <span className="ml-1 text-amber-700">{finalized.locked_dropped} already-scored rows were left unchanged.</span>
-            )}
+          <div className="flex items-start gap-2.5 rounded-lg border border-success-border bg-success-subtle p-4 text-sm text-success">
+            <CheckCircle2 className="mt-0.5 size-4 shrink-0" />
+            <div>
+              <strong>{finalized.committed} editorial summaries committed.</strong> Matched nominations are now assignable.
+              {finalized.locked_dropped > 0 && (
+                <span className="ml-1 text-warning">{finalized.locked_dropped} already-scored rows left unchanged.</span>
+              )}
+            </div>
           </div>
         )}
       </div>
@@ -450,101 +518,135 @@ function AuditedStep() {
 
 function CoverageDashboard({ coverage }: { coverage: CoverageSummary | null }) {
   if (!coverage) return null
+  const overallPct = coverage.total ? Math.round((coverage.with_summary / coverage.total) * 100) : 0
   return (
-    <div className="card-surface space-y-3 p-6">
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h2 className="text-base font-semibold text-foreground">Editorial summary coverage</h2>
-        <p className="text-sm text-muted-foreground">
-          <strong className="text-foreground">{coverage.with_summary}</strong> / {coverage.total} nominations have summaries
-          · <span className="text-orange-600">{coverage.pending} pending</span>
-        </p>
+    <div className="space-y-4">
+      <div className="grid grid-cols-3 gap-4">
+        <StatCard label="Total nominations" value={coverage.total} tone="neutral" />
+        <StatCard label="With summary" value={coverage.with_summary} hint={`${overallPct}%`} tone="success" emphasis />
+        <StatCard label="Pending" value={coverage.pending} tone={coverage.pending > 0 ? 'warning' : 'neutral'} />
       </div>
-      <div className="space-y-2">
-        {coverage.by_master.map((m) => {
-          const pct = m.total ? Math.round((m.with_summary / m.total) * 100) : 0
-          return (
-            <div key={m.master_category} className="space-y-1">
-              <div className="flex justify-between text-xs">
-                <span className="font-medium text-foreground">{m.master_category}</span>
-                <span className="text-muted-foreground">{m.with_summary}/{m.total} · {pct}%</span>
+      <div className="card-surface p-5">
+        <h2 className="text-sm font-semibold text-foreground">Coverage by category</h2>
+        <div className="mt-4 space-y-3">
+          {coverage.by_master.map((m) => {
+            const pct = m.total ? Math.round((m.with_summary / m.total) * 100) : 0
+            return (
+              <div key={m.master_category}>
+                <div className="mb-1 flex justify-between text-xs">
+                  <span className="font-medium text-foreground">{m.master_category}</span>
+                  <span className="tabular-nums text-muted-foreground">
+                    {m.with_summary}/{m.total} · {pct}%
+                  </span>
+                </div>
+                <Meter value={pct} tone={pct === 100 ? 'success' : 'primary'} />
               </div>
-              <div className="h-2 overflow-hidden rounded-full bg-muted">
-                <div className="h-full rounded-full bg-emerald-500" style={{ width: `${pct}%` }} />
-              </div>
-            </div>
-          )
-        })}
+            )
+          })}
+        </div>
       </div>
     </div>
   )
 }
 
 function UploadHistory({ batches }: { batches: ImportBatch[] }) {
+  const columns = useMemo<ColumnDef<ImportBatch>[]>(
+    () => [
+      {
+        accessorKey: 'file_names',
+        header: 'Files',
+        enableSorting: false,
+        cell: ({ row }) => (
+          <span className="text-xs text-foreground">{row.original.file_names.join(', ') || '—'}</span>
+        ),
+      },
+      { accessorKey: 'uploaded_by_name', header: 'Uploaded by', cell: ({ row }) => <span className="text-muted-foreground">{row.original.uploaded_by_name ?? '—'}</span> },
+      {
+        accessorKey: 'created_at',
+        header: 'Date',
+        cell: ({ row }) => (
+          <span className="text-muted-foreground">{new Date(row.original.created_at).toLocaleString()}</span>
+        ),
+      },
+      {
+        accessorKey: 'imported_count',
+        header: 'Imported',
+        cell: ({ row }) => (
+          <span className="tabular-nums text-muted-foreground">
+            {row.original.status === 'finalized' ? row.original.imported_count : '—'}
+          </span>
+        ),
+      },
+      { accessorKey: 'duplicate_count', header: 'Duplicates', cell: ({ row }) => <span className="tabular-nums text-muted-foreground">{row.original.duplicate_count}</span> },
+      { accessorKey: 'unmatched_count', header: 'Unmatched', cell: ({ row }) => <span className="tabular-nums text-muted-foreground">{row.original.unmatched_count}</span> },
+      {
+        accessorKey: 'status',
+        header: 'Status',
+        cell: ({ row }) => {
+          const s = row.original.status
+          return (
+            <Badge variant={s === 'finalized' ? 'success' : s === 'staged' ? 'warning' : 'neutral'}>
+              {s}
+            </Badge>
+          )
+        },
+      },
+    ],
+    []
+  )
+
   if (batches.length === 0) return null
-  const statusCls: Record<string, string> = {
-    finalized: 'text-emerald-700',
-    staged: 'text-amber-600',
-    discarded: 'text-muted-foreground line-through',
-  }
   return (
-    <div className="card-surface space-y-3 p-6">
-      <h2 className="text-base font-semibold text-foreground">Upload history</h2>
-      <div className="overflow-x-auto rounded-lg border border-border">
-        <table className="min-w-full text-sm">
-          <thead className="bg-muted/60 text-xs font-medium uppercase text-muted-foreground">
-            <tr>
-              <th className="px-3 py-2 text-left">Files</th>
-              <th className="px-3 py-2 text-left">Uploaded by</th>
-              <th className="px-3 py-2 text-left">Date</th>
-              <th className="px-3 py-2 text-right">Imported</th>
-              <th className="px-3 py-2 text-right">Duplicates</th>
-              <th className="px-3 py-2 text-right">Unmatched</th>
-              <th className="px-3 py-2 text-left">Status</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border">
-            {batches.map((b) => (
-              <tr key={b.id}>
-                <td className="px-3 py-2 text-xs text-foreground">{b.file_names.join(', ') || '—'}</td>
-                <td className="px-3 py-2 text-muted-foreground">{b.uploaded_by_name ?? '—'}</td>
-                <td className="px-3 py-2 text-muted-foreground">{new Date(b.created_at).toLocaleString()}</td>
-                <td className="px-3 py-2 text-right text-muted-foreground">{b.status === 'finalized' ? b.imported_count : '—'}</td>
-                <td className="px-3 py-2 text-right text-muted-foreground">{b.duplicate_count}</td>
-                <td className="px-3 py-2 text-right text-muted-foreground">{b.unmatched_count}</td>
-                <td className={`px-3 py-2 text-xs font-medium ${statusCls[b.status] ?? 'text-foreground'}`}>{b.status}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+    <div>
+      <h2 className="mb-3 text-sm font-semibold text-foreground">Upload history</h2>
+      <DataGrid
+        data={batches}
+        columns={columns}
+        getRowId={(r) => r.id}
+        enableDensityToggle={false}
+        pageSize={10}
+      />
     </div>
   )
 }
 
-function ReconcileRow({ row, pick, onPick, onResolve }: { row: UnmatchedRow; pick: string; onPick: (value: string) => void; onResolve: (id: string, action: 'match' | 'skip', nominationId?: string) => void }) {
+function ReconcileRow({
+  row,
+  pick,
+  onPick,
+  onResolve,
+}: {
+  row: UnmatchedRow
+  pick: string
+  onPick: (value: string) => void
+  onResolve: (id: string, action: 'match' | 'skip', nominationId?: string) => void
+}) {
   return (
-    <div className="rounded-lg border border-orange-200 bg-orange-50/50 p-3">
+    <div className="rounded-xl border border-danger-border bg-danger-subtle/40 p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="text-sm">
           <span className="font-medium text-foreground">{row.nominee_name}</span>
           <span className="text-muted-foreground"> · {row.company} · {categoryLabel(row.normalized_key)}</span>
         </div>
         <div className="flex items-center gap-2">
-          <select value={pick} onChange={(e) => onPick(e.target.value)} className="max-w-xs rounded-md border border-input bg-card px-2 py-1 text-xs">
-            {row.candidates.length === 0 && <option value="">No candidates in this category</option>}
-            {row.candidates.map((c) => (
-              <option key={c.id} value={c.id}>{c.nominee_name} — {c.company}</option>
-            ))}
-          </select>
-          <button
-            onClick={() => pick && onResolve(row.id, 'match', pick)}
-            disabled={!pick}
-            className="rounded-md bg-emerald-600 px-3 py-1 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
-          >Match</button>
-          <button
-            onClick={() => onResolve(row.id, 'skip')}
-            className="rounded-md border border-border px-3 py-1 text-xs font-medium text-muted-foreground hover:bg-muted"
-          >Skip</button>
+          {row.candidates.length === 0 ? (
+            <span className="text-xs text-muted-foreground">No candidates in this category</span>
+          ) : (
+            <Select
+              size="sm"
+              aria-label="Candidate nomination"
+              value={pick}
+              onValueChange={onPick}
+              options={row.candidates.map((c) => ({ value: c.id, label: `${c.nominee_name} — ${c.company}` }))}
+              className="max-w-xs"
+            />
+          )}
+          <Button size="sm" onClick={() => pick && onResolve(row.id, 'match', pick)} disabled={!pick}>
+            Match
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => onResolve(row.id, 'skip')}>
+            Skip
+          </Button>
         </div>
       </div>
     </div>
@@ -553,21 +655,22 @@ function ReconcileRow({ row, pick, onPick, onResolve }: { row: UnmatchedRow; pic
 
 function DuplicateRowItem({ row, onReplace }: { row: DuplicateRow; onReplace: (id: string) => void }) {
   return (
-    <div className="rounded-lg border border-amber-200 bg-amber-50/50 p-3">
+    <div className="rounded-xl border border-warning-border bg-warning-subtle/40 p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="text-sm">
           <span className="font-medium text-foreground">{row.nominee_name}</span>
           <span className="text-muted-foreground"> · {row.company} · {categoryLabel(row.normalized_key)} · already imported</span>
         </div>
         {row.locked ? (
-          <span className="rounded-md border border-border bg-muted px-3 py-1 text-xs font-medium text-muted-foreground">
-            🔒 Locked — scoring started
+          <span className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">
+            <Lock className="size-3" />
+            Locked — scoring started
           </span>
         ) : (
-          <button
-            onClick={() => onReplace(row.id)}
-            className="rounded-md border border-amber-300 bg-amber-100 px-3 py-1 text-xs font-medium text-amber-800 hover:bg-amber-200"
-          >Replace existing</button>
+          <Button size="sm" variant="outline" onClick={() => onReplace(row.id)}>
+            <RotateCcw className="size-3.5" />
+            Replace existing
+          </Button>
         )}
       </div>
     </div>
@@ -576,16 +679,30 @@ function DuplicateRowItem({ row, onReplace }: { row: DuplicateRow; onReplace: (i
 
 // ── Page ─────────────────────────────────────────────────────────────────────
 
+const STEPS = [
+  { id: 'raw', label: 'Raw nominations', description: 'Upload & map sheets' },
+  { id: 'editorial', label: 'Editorial summaries', description: 'Match & finalize' },
+]
+
 export default function ImportPage() {
-  const [, setRawDone] = useState(false)
+  const [rawDone, setRawDone] = useState(false)
+  const [editorialDone, setEditorialDone] = useState(false)
+
+  const states = useMemo<('complete' | 'current' | 'upcoming')[]>(() => {
+    return [rawDone ? 'complete' : 'current', editorialDone ? 'complete' : rawDone ? 'current' : 'current']
+  }, [rawDone, editorialDone])
+
   return (
-    <div className="mx-auto max-w-5xl space-y-6">
+    <div className="mx-auto max-w-[72rem] space-y-6">
       <PageHeader
-        title="Import Data"
-        description="Two steps: import raw nominations and map their categories, then upload editorial summaries incrementally and match them."
+        title="Import"
+        description="Import raw nominations and map their categories, then upload editorial summaries and match them."
       />
+      <div className="card-surface px-6 py-4">
+        <Stepper steps={STEPS} states={states} />
+      </div>
       <RawStep onDone={() => setRawDone(true)} />
-      <AuditedStep />
+      <AuditedStep onFinalized={() => setEditorialDone(true)} />
     </div>
   )
 }

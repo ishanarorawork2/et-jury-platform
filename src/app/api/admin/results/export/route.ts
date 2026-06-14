@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server'
+﻿import { NextRequest, NextResponse } from 'next/server'
 import * as XLSX from 'xlsx'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import {
@@ -15,7 +15,7 @@ async function requireAdmin() {
 }
 
 async function loadExportData(): Promise<ExportData> {
-  const service = await createServiceClient()
+  const service = createServiceClient()
   const [{ data: nominations }, { data: summaries }, { data: assignments }, { data: scores }, { data: jurors }] =
     await Promise.all([
       service.from('nominations').select('id, nomination_id, nominee_name, company, designation, master_category, category_key, raw_data_json').order('nominee_name'),

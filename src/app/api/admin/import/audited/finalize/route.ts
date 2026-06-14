@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server'
+﻿import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 
 // Returns the admin user's id, or null if the caller is not an admin.
@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
   const { batch_id } = await req.json() as { batch_id: string }
   if (!batch_id) return NextResponse.json({ error: 'batch_id required' }, { status: 400 })
 
-  const service = await createServiceClient()
+  const service = createServiceClient()
 
   const { count: unmatchedCount } = await service
     .from('audited_staging')

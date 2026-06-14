@@ -20,7 +20,8 @@ export default async function AdminNominationsPage() {
     .from('nominations')
     .select(`
       id, nomination_id, nominee_name, company, designation, master_category, category_key,
-      editorial_summary ( id )
+      editorial_summary ( id ),
+      assignments ( status )
     `)
     .order('master_category')
     .order('nominee_name')
