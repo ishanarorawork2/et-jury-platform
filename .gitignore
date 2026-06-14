@@ -42,3 +42,5 @@ next-env.d.ts
 
 # local MCP config (contains Supabase access token)
 .mcp.json
+
+.vercel
