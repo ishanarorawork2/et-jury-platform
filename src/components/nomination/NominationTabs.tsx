@@ -4,8 +4,9 @@ import { FileText, Sparkles, ClipboardCheck } from 'lucide-react'
 import RawDataView from './RawDataView'
 import EditorialSummaryView, { type EditorialSummary } from './EditorialSummaryView'
 import ScoringForm from './ScoringForm'
+import { ScoreAuditPanel } from '@/components/admin/ScoreAuditPanel'
 import { Tabs, TabsList, TabsTab, TabsPanel } from '@/components/ui/tabs'
-import { EmptyState } from '@/components/ui/empty-state'
+import { DIVERGENCE_THRESHOLD } from '@/lib/scoring-config'
 
 type Criterion = { key: string; label: string; min: number; max: number }
 
@@ -62,10 +63,10 @@ export default function NominationTabs({
           {role === 'juror' ? (
             <ScoringForm nominationId={nominationId} rubric={rubric} existingScore={existingScore} />
           ) : (
-            <EmptyState
-              icon={ClipboardCheck}
-              title="Scoring is for assigned jurors"
-              description="Admins can review nomination content and editorial summaries, but scoring is restricted to the two assigned jurors."
+            <ScoreAuditPanel
+              nominationId={nominationId}
+              divergenceThreshold={DIVERGENCE_THRESHOLD}
+              onOpenReview={() => {}}
             />
           )}
         </TabsPanel>

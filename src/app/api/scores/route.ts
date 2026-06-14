@@ -1,5 +1,19 @@
-﻿import { NextRequest, NextResponse } from 'next/server'
-import { createClient, createServiceClient } from '@/lib/supabase/server'
+import { NextRequest, NextResponse } from 'next/server'
+import { revalidatePath } from 'next/cache'
+import { createClient } from '@/lib/supabase/server'
+
+// Surfaces whose server render reflects a newly submitted score. Revalidated on
+// every successful submit so admin screens go live without a manual refresh —
+// the core staleness fix (no realtime layer exists; see plan Part C3).
+function revalidateScoreSurfaces(nominationId: string) {
+  revalidatePath('/admin/results')
+  revalidatePath('/admin/progress')
+  revalidatePath('/admin/nominations')
+  revalidatePath('/dashboard')
+  revalidatePath('/nominations/[id]', 'page')
+  // The literal path too, in case the dynamic segment form misses a cached entry.
+  revalidatePath(`/nominations/${nominationId}`)
+}
 
 export async function POST(req: NextRequest) {
   const supabase = await createClient()
@@ -7,77 +21,52 @@ export async function POST(req: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { data: profile } = await supabase
-    .from('jury_users')
-    .select('role')
-    .eq('id', user.id)
-    .single()
-
-  if (profile?.role !== 'juror') {
-    return NextResponse.json({ error: 'Only jurors can submit scores' }, { status: 403 })
-  }
-
-  const body = await req.json() as {
+  const body = (await req.json()) as {
     nomination_id: string
     criteria_scores_json: Record<string, number>
     comment?: string
   }
-
   const { nomination_id, criteria_scores_json, comment } = body
   if (!nomination_id || !criteria_scores_json || typeof criteria_scores_json !== 'object') {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
   }
 
-  // Verify this juror is assigned to the nomination
-  const { data: assignment } = await supabase
-    .from('assignments')
-    .select('id')
-    .eq('nomination_id', nomination_id)
-    .eq('juror_id', user.id)
-    .maybeSingle()
+  // Single atomic RPC on the user's own session: authz + rubric validation +
+  // mean total + versioned append, all server-side. No service role, no
+  // assignments.status dual-write — completion now derives from the score row.
+  const submit = () =>
+    supabase.rpc('submit_score', {
+      p_nomination_id: nomination_id,
+      p_criteria_scores: criteria_scores_json,
+      p_comment: comment ?? null,
+    })
 
-  if (!assignment) {
-    return NextResponse.json({ error: 'Not assigned to this nomination' }, { status: 403 })
+  let { data, error } = await submit()
+
+  // A concurrent double-submit collides on the UNIQUE(nom,juror,version) key.
+  // Retry once — the version is recomputed inside the function, so the retry
+  // lands the next version cleanly.
+  if (error?.code === '23505') {
+    ;({ data, error } = await submit())
   }
 
-  // total_score = average (mean) of all criteria scores, on a 0–100 scale
-  const criteriaValues = Object.values(criteria_scores_json)
-  const total_score = criteriaValues.length > 0
-    ? Math.round((criteriaValues.reduce((sum, v) => sum + (Number(v) || 0), 0) / criteriaValues.length) * 10) / 10
-    : 0
-
-  // Next version number (scores are append-only)
-  const { data: lastScore } = await supabase
-    .from('scores')
-    .select('version')
-    .eq('nomination_id', nomination_id)
-    .eq('juror_id', user.id)
-    .order('version', { ascending: false })
-    .limit(1)
-    .maybeSingle()
-
-  const version = (lastScore?.version ?? 0) + 1
-
-  const { error: insertError } = await supabase.from('scores').insert({
-    juror_id: user.id,
-    nomination_id,
-    criteria_scores_json,
-    total_score,
-    comment: comment || null,
-    version,
-  })
-
-  if (insertError) {
-    return NextResponse.json({ error: insertError.message }, { status: 500 })
+  if (error) {
+    switch (error.code) {
+      case '42501':
+        return NextResponse.json({ error: 'Not assigned to this nomination' }, { status: 403 })
+      case '23514':
+        return NextResponse.json({ error: error.message || 'Invalid scores' }, { status: 400 })
+      case '23505':
+        return NextResponse.json({ error: 'Conflicting submission, please retry' }, { status: 409 })
+      default:
+        return NextResponse.json({ error: error.message }, { status: 500 })
+    }
   }
 
-  // Mark assignment as scored (uses service role to bypass RLS — jurors have no UPDATE policy)
-  const service = createServiceClient()
-  await service
-    .from('assignments')
-    .update({ status: 'scored' })
-    .eq('nomination_id', nomination_id)
-    .eq('juror_id', user.id)
+  // RPC returns the inserted `scores` row.
+  const row = (Array.isArray(data) ? data[0] : data) as { total_score: number; version: number }
 
-  return NextResponse.json({ ok: true, total_score, version })
+  revalidateScoreSurfaces(nomination_id)
+
+  return NextResponse.json({ ok: true, total_score: row.total_score, version: row.version })
 }

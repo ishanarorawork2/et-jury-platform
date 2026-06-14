@@ -48,9 +48,11 @@ export function DataGrid<T>({
   rowActions,
   density: densityProp = 'comfortable',
   enableDensityToggle = true,
+  enableColumnVisibility = true,
   pageSize = 25,
   savedViewsKey,
   initialSorting = [],
+  initialColumnVisibility = {},
   onRowClick,
   toolbarStart,
   bulkActions,
@@ -60,7 +62,7 @@ export function DataGrid<T>({
   const [sorting, setSorting] = useState<SortingState>(initialSorting)
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])
   const [globalFilter, setGlobalFilter] = useState('')
-  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({})
+  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(initialColumnVisibility)
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({})
   const [density, setDensity] = useState(densityProp)
   const [hydrated, setHydrated] = useState(false)
@@ -198,7 +200,7 @@ export function DataGrid<T>({
               ]}
             />
           )}
-          {hideableColumns.length > 0 && (
+          {enableColumnVisibility && hideableColumns.length > 0 && (
             <DropdownMenu>
               <DropdownMenuTrigger
                 render={

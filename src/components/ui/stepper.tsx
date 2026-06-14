@@ -9,6 +9,7 @@ function Stepper({
   current,
   states,
   className,
+  orientation = 'horizontal',
   onStepClick,
 }: {
   steps: Step[]
@@ -17,6 +18,7 @@ function Stepper({
   /** Explicit per-step state; overrides `current`. */
   states?: StepState[]
   className?: string
+  orientation?: 'horizontal' | 'vertical'
   onStepClick?: (index: number) => void
 }) {
   const stateAt = (i: number): StepState => {
@@ -25,6 +27,62 @@ function Stepper({
     if (i < current) return 'complete'
     if (i === current) return 'current'
     return 'upcoming'
+  }
+
+  if (orientation === 'vertical') {
+    return (
+      <ol className={cn('flex flex-col gap-0', className)}>
+        {steps.map((step, i) => {
+          const state = stateAt(i)
+          const clickable = onStepClick && state !== 'upcoming'
+          const isLast = i === steps.length - 1
+          return (
+            <li key={step.id} className="flex items-stretch gap-3">
+              {/* Left column: circle + connector line */}
+              <div className="flex flex-col items-center">
+                <button
+                  type="button"
+                  disabled={!clickable}
+                  onClick={() => clickable && onStepClick(i)}
+                  className={cn(
+                    'flex size-7 shrink-0 items-center justify-center rounded-full border text-xs font-semibold tabular-nums transition-colors outline-none',
+                    clickable && 'cursor-pointer focus-visible:ring-3 focus-visible:ring-ring/50',
+                    !clickable && 'cursor-default',
+                    state === 'complete' && 'border-primary bg-primary text-primary-foreground',
+                    state === 'current' && 'border-primary bg-accent text-primary',
+                    state === 'upcoming' && 'border-border bg-muted text-muted-foreground'
+                  )}
+                >
+                  {state === 'complete' ? <Check className="size-3.5" /> : i + 1}
+                </button>
+                {!isLast && (
+                  <span
+                    className={cn(
+                      'w-px flex-1 my-1 transition-colors',
+                      stateAt(i) === 'complete' ? 'bg-primary' : 'bg-border'
+                    )}
+                  />
+                )}
+              </div>
+              {/* Right column: label + description */}
+              <div className={cn('flex flex-col justify-start min-w-0 pb-4', isLast && 'pb-0')}>
+                <span
+                  className={cn(
+                    'text-sm font-medium leading-7',
+                    state === 'upcoming' ? 'text-muted-foreground' : 'text-foreground'
+                  )}
+                >
+                  {step.label}
+                </span>
+                {step.description && (
+                  <span className="text-xs text-muted-foreground">{step.description}</span>
+                )}
+              </div>
+            </li>
+          )
+        })}
+      </ol>
+    )
   }
 
   return (

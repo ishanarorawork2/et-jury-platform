@@ -7,6 +7,7 @@ import {
   CheckCircle2,
   GitMerge,
   LayoutList,
+  Lock,
   TimerReset,
   ListChecks,
   ArrowRight,
@@ -24,6 +25,7 @@ export type GroupStat = {
   total: number
   fullyAssigned: number
   complete: number
+  finalized: number
   pending: number
   unassigned: number
 }
@@ -36,11 +38,20 @@ export type JurorStat = {
   pending: number
 }
 
+export type DivergentItem = {
+  id: string
+  nominee_name: string
+  category_key: string
+  divergence: number
+}
+
 type Props = {
-  totals: { total: number; fullyAssigned: number; complete: number; unassigned: number; pending: number }
+  totals: { total: number; fullyAssigned: number; complete: number; finalized: number; unassigned: number; pending: number }
   categoryStats: GroupStat[]
   subCategoryStats: GroupStat[]
   jurorStats: JurorStat[]
+  divergentItems: DivergentItem[]
+  divergenceThreshold: number
 }
 
 function pct(n: number, d: number) {
@@ -52,6 +63,8 @@ export default function ProgressDashboard({
   categoryStats,
   subCategoryStats,
   jurorStats,
+  divergentItems,
+  divergenceThreshold,
 }: Props) {
   const needsAttention = totals.unassigned + totals.pending
 
@@ -83,8 +96,18 @@ export default function ProgressDashboard({
           href: '/admin/jurors',
         })
       )
+    // Advisory: nominations where the two jurors diverge beyond the threshold.
+    divergentItems.slice(0, 4).forEach((d) =>
+      items.push({
+        id: `divergence-${d.id}`,
+        severity: 'warning',
+        label: d.nominee_name,
+        detail: `Jurors differ by ${d.divergence} points (≥ ${divergenceThreshold}) · ${categoryLabel(d.category_key)}`,
+        href: '/admin/results',
+      })
+    )
     return items
-  }, [subCategoryStats, jurorStats])
+  }, [subCategoryStats, jurorStats, divergentItems, divergenceThreshold])
 
   const subColumns = useMemo<ColumnDef<GroupStat>[]>(
     () => [
@@ -200,13 +223,14 @@ export default function ProgressDashboard({
         <div className="card-surface p-5 lg:col-span-2">
           <h2 className="text-sm font-semibold text-foreground">Evaluation funnel</h2>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            Progression from intake to a complete two-juror score.
+            Progression from intake through a complete two-juror score to a finalized ranking.
           </p>
           <div className="mt-5 space-y-4">
             {[
               { label: 'Total nominations', value: totals.total, tone: 'neutral' as const },
               { label: 'Fully assigned', value: totals.fullyAssigned, tone: 'info' as const },
-              { label: 'Complete', value: totals.complete, tone: 'success' as const },
+              { label: 'Complete (2 scores)', value: totals.complete, tone: 'success' as const },
+              { label: 'Finalized', value: totals.finalized, tone: 'accent' as const },
             ].map((stage) => (
               <div key={stage.label}>
                 <div className="mb-1 flex items-center justify-between text-sm">
@@ -222,7 +246,8 @@ export default function ProgressDashboard({
                       'h-full rounded-full transition-[width] duration-(--duration-slow) ease-(--ease-out)',
                       stage.tone === 'neutral' && 'bg-muted-foreground/40',
                       stage.tone === 'info' && 'bg-info',
-                      stage.tone === 'success' && 'bg-success'
+                      stage.tone === 'success' && 'bg-success',
+                      stage.tone === 'accent' && 'bg-primary'
                     )}
                     style={{ width: `${pct(stage.value, totals.total)}%` }}
                   />
@@ -280,7 +305,15 @@ export default function ProgressDashboard({
             <div key={c.key} className="card-surface p-4">
               <div className="flex items-start justify-between gap-2">
                 <span className="text-sm font-medium text-foreground">{c.key}</span>
-                <span className="text-xs tabular-nums text-muted-foreground">{c.total}</span>
+                <span className="flex items-center gap-1.5">
+                  {c.finalized > 0 && (
+                    <Badge variant="accent" className="gap-1">
+                      <Lock className="size-3" />
+                      {c.finalized}
+                    </Badge>
+                  )}
+                  <span className="text-xs tabular-nums text-muted-foreground">{c.total}</span>
+                </span>
               </div>
               <div className="mt-3">
                 <StackedBar

@@ -1,89 +1,48 @@
-﻿import { createClient, createServiceClient } from '@/lib/supabase/server'
+import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { Download, FileSpreadsheet } from 'lucide-react'
 import { PageHeader } from '@/components/ui/page-header'
 import { Button } from '@/components/ui/button'
-import ResultsBrowser, { type ResultRow } from '@/components/admin/ResultsBrowser'
+import ResultsBrowser, { type ResultRow, type FinalizedMeta } from '@/components/admin/ResultsBrowser'
 import { RefreshButton } from '@/components/ui/refresh-button'
+import { fetchAll } from '@/lib/supabase/fetch-all'
+import { DIVERGENCE_THRESHOLD } from '@/lib/scoring-config'
+import type { LifecycleStatus } from '@/lib/status'
 
-type JurorScore = { juror_id: string; juror_name: string; total_score: number }
-
-function buildResults(
-  nominations: { id: string; nomination_id: string; nominee_name: string; company: string; master_category: string; category_key: string }[],
-  assignments: { nomination_id: string; juror_id: string; status: string }[],
-  scores: { nomination_id: string; juror_id: string; total_score: number; version: number }[],
-  jurors: { id: string; name: string }[],
-): Record<string, ResultRow[]> {
-  const jurorMap = new Map(jurors.map(j => [j.id, j.name]))
-
-  const latestScoreMap = new Map<string, number>()
-  for (const s of scores) {
-    const key = `${s.nomination_id}:${s.juror_id}`
-    if (!latestScoreMap.has(key)) latestScoreMap.set(key, s.total_score)
-  }
-
-  const assignmentsByNom = new Map<string, typeof assignments>()
-  for (const a of assignments) {
-    if (!assignmentsByNom.has(a.nomination_id)) assignmentsByNom.set(a.nomination_id, [])
-    assignmentsByNom.get(a.nomination_id)!.push(a)
-  }
-
-  const rows: ResultRow[] = nominations.map(n => {
-    const nomAssignments = assignmentsByNom.get(n.id) ?? []
-    const scoredAssignments = nomAssignments.filter(a => a.status === 'scored')
-    const complete = scoredAssignments.length >= 2
-
-    const jurorScores: JurorScore[] = scoredAssignments.map(a => ({
-      juror_id: a.juror_id,
-      juror_name: jurorMap.get(a.juror_id) ?? 'Unknown',
-      total_score: latestScoreMap.get(`${n.id}:${a.juror_id}`) ?? 0,
-    }))
-
-    const final_score = complete
-      ? jurorScores.reduce((sum, s) => sum + s.total_score, 0) / 2
-      : null
-
-    return {
-      id: n.id,
-      nomination_id: n.nomination_id,
-      nominee_name: n.nominee_name,
-      company: n.company,
-      master_category: n.master_category,
-      category_key: n.category_key,
-      complete,
-      final_score,
-      juror_scores: jurorScores,
-      rank: null,
-      tied: false,
-    }
-  })
-
-  const categories = [...new Set(rows.map(r => r.master_category))].sort()
-  const result: Record<string, ResultRow[]> = {}
-
-  for (const cat of categories) {
-    const catRows = rows.filter(r => r.master_category === cat)
-    const complete = catRows
-      .filter(r => r.complete)
-      .sort((a, b) => (b.final_score ?? 0) - (a.final_score ?? 0))
-    const incomplete = catRows.filter(r => !r.complete)
-
-    let rankVar = 1
-    for (let i = 0; i < complete.length; i++) {
-      if (i > 0 && complete[i].final_score === complete[i - 1].final_score) {
-        complete[i].rank = complete[i - 1].rank
-        complete[i].tied = true
-        complete[i - 1].tied = true
-      } else {
-        complete[i].rank = rankVar
-      }
-      rankVar = i + 2
-    }
-
-    result[cat] = [...complete, ...incomplete]
-  }
-
-  return result
+// View row shapes (read via service role for correct, RLS-bypassing aggregates).
+type RankingRow = {
+  nomination_id: string
+  display_id: string
+  nominee_name: string
+  company: string
+  master_category: string
+  category_key: string
+  assigned_count: number
+  scored_count: number
+  final_score: number | null
+  complete: boolean
+  is_finalized: boolean
+  lifecycle_status: LifecycleStatus
+  rank: number | null
+  tied: boolean
+}
+type LatestScoreRow = {
+  nomination_id: string
+  juror_id: string
+  total_score: number
+  version: number
+  criteria_scores_json: Record<string, number> | null
+  comment: string | null
+  submitted_at: string
+}
+type DivergenceRow = { nomination_id: string; divergence: number }
+type FinalizedRow = {
+  category_key: string
+  nomination_id: string
+  rank: number | null
+  final_score: number | null
+  finalized_by: string | null
+  finalized_at: string
 }
 
 export default async function AdminResultsPage() {
@@ -96,23 +55,106 @@ export default async function AdminResultsPage() {
 
   const service = createServiceClient()
 
-  const [{ data: nominations }, { data: assignments }, { data: scores }, { data: jurors }] = await Promise.all([
-    service.from('nominations').select('id, nomination_id, nominee_name, company, master_category, category_key').order('nominee_name'),
-    service.from('assignments').select('nomination_id, juror_id, status'),
-    service.from('scores').select('nomination_id, juror_id, total_score, version').order('version', { ascending: false }),
-    service.from('jury_users').select('id, name').eq('role', 'juror'),
+  const [rankings, latestScores, divergences, finalized, jurorsRes] = await Promise.all([
+    fetchAll<RankingRow>(
+      service,
+      'category_rankings',
+      'nomination_id, display_id, nominee_name, company, master_category, category_key, assigned_count, scored_count, final_score, complete, is_finalized, lifecycle_status, rank, tied'
+    ),
+    fetchAll<LatestScoreRow>(
+      service,
+      'latest_scores',
+      'nomination_id, juror_id, total_score, version, criteria_scores_json, comment, submitted_at'
+    ),
+    fetchAll<DivergenceRow>(service, 'score_divergence', 'nomination_id, divergence'),
+    fetchAll<FinalizedRow>(service, 'finalized_rankings', 'category_key, nomination_id, rank, final_score, finalized_by, finalized_at'),
+    service.from('jury_users').select('id, name'),
   ])
 
-  const categoryResults = buildResults(
-    nominations ?? [],
-    assignments ?? [],
-    scores ?? [],
-    jurors ?? [],
-  )
+  const jurorMap = new Map((jurorsRes.data ?? []).map((j) => [j.id, j.name]))
+  const divergenceMap = new Map(divergences.map((d) => [d.nomination_id, Number(d.divergence)]))
+  const finalizedMap = new Map(finalized.map((f) => [f.nomination_id, f]))
 
-  const allRows = Object.values(categoryResults).flat()
-  const totalComplete = allRows.filter(r => r.complete).length
-  const totalTied = allRows.filter(r => r.tied).length
+  // Latest scores grouped per nomination, enriched with juror name.
+  const scoresByNom = new Map<string, ResultRow['juror_scores']>()
+  for (const s of latestScores) {
+    const list = scoresByNom.get(s.nomination_id) ?? []
+    list.push({
+      juror_id: s.juror_id,
+      juror_name: jurorMap.get(s.juror_id) ?? 'Unknown',
+      total_score: Number(s.total_score),
+      version: s.version,
+      criteria_scores_json: s.criteria_scores_json,
+      comment: s.comment,
+      submitted_at: s.submitted_at,
+    })
+    scoresByNom.set(s.nomination_id, list)
+  }
+  for (const list of scoresByNom.values()) list.sort((a, b) => a.juror_name.localeCompare(b.juror_name))
+
+  const rows: ResultRow[] = rankings.map((r) => {
+    const snap = finalizedMap.get(r.nomination_id)
+    return {
+      id: r.nomination_id,
+      nomination_id: r.display_id,
+      nominee_name: r.nominee_name,
+      company: r.company,
+      master_category: r.master_category,
+      category_key: r.category_key,
+      complete: r.complete,
+      final_score: r.final_score != null ? Number(r.final_score) : null,
+      juror_scores: scoresByNom.get(r.nomination_id) ?? [],
+      rank: r.rank,
+      tied: r.tied,
+      lifecycle_status: r.lifecycle_status,
+      assigned_count: r.assigned_count,
+      scored_count: r.scored_count,
+      divergence: divergenceMap.get(r.nomination_id) ?? null,
+      finalized: r.is_finalized,
+      snapshot: snap
+        ? {
+            rank: snap.rank,
+            final_score: snap.final_score != null ? Number(snap.final_score) : null,
+            finalized_at: snap.finalized_at,
+            finalized_by_name: snap.finalized_by ? jurorMap.get(snap.finalized_by) ?? null : null,
+          }
+        : null,
+    }
+  })
+
+  // Group by master category for display; ranking itself is per category_key.
+  const categoryResults: Record<string, ResultRow[]> = {}
+  for (const r of rows) {
+    ;(categoryResults[r.master_category] ??= []).push(r)
+  }
+  for (const list of Object.values(categoryResults)) {
+    list.sort((a, b) => {
+      // Complete (ranked) rows first, ordered by category then rank; rest after.
+      if (a.complete !== b.complete) return a.complete ? -1 : 1
+      const cat = a.category_key.localeCompare(b.category_key)
+      if (cat !== 0) return cat
+      return (a.rank ?? 9999) - (b.rank ?? 9999)
+    })
+  }
+
+  // Per-category finalize state for the category headers.
+  const finalizedByCategory: Record<string, FinalizedMeta> = {}
+  for (const f of finalized) {
+    const existing = finalizedByCategory[f.category_key]
+    if (!existing) {
+      finalizedByCategory[f.category_key] = {
+        count: 1,
+        finalized_at: f.finalized_at,
+        finalized_by_name: f.finalized_by ? jurorMap.get(f.finalized_by) ?? null : null,
+      }
+    } else {
+      existing.count += 1
+    }
+  }
+
+  const allRows = rows
+  const totalComplete = allRows.filter((r) => r.complete).length
+  const totalTied = allRows.filter((r) => r.tied).length
 
   return (
     <div className="mx-auto max-w-[80rem]">
@@ -139,7 +181,11 @@ export default async function AdminResultsPage() {
         }
       />
 
-      <ResultsBrowser categoryResults={categoryResults} />
+      <ResultsBrowser
+        categoryResults={categoryResults}
+        finalizedByCategory={finalizedByCategory}
+        divergenceThreshold={DIVERGENCE_THRESHOLD}
+      />
     </div>
   )
 }

@@ -9,10 +9,12 @@ type AssignmentRow = {
   nomination_id: string
   nomination_display_id: string
   nominee_name: string
+  designation: string
   company: string
   master_category: string
   category_key: string
   score: number | null
+  summary: string | null
 }
 
 export default async function DashboardPage() {
@@ -31,21 +33,24 @@ export default async function DashboardPage() {
   const { data: assignments } = await supabase
     .from('assignments')
     .select(`
-      id, status,
-      nominations ( id, nomination_id, nominee_name, company, master_category, category_key )
+      id,
+      nominations (
+        id, nomination_id, nominee_name, designation, company, master_category, category_key,
+        editorial_summary ( summary )
+      )
     `)
     .eq('juror_id', user.id)
     .order('assigned_at', { ascending: true })
 
-  // Fetch all scores for this juror (ordered ASC so Map ends up with highest version per nomination).
+  // The juror's own latest score per nomination — completion derives from this
+  // (the score's existence), never assignments.status. No co-juror data here.
   const { data: scores } = await supabase
-    .from('scores')
+    .from('latest_scores')
     .select('nomination_id, total_score')
     .eq('juror_id', user.id)
-    .order('version', { ascending: true })
 
   const scoreMap = new Map(
-    (scores ?? []).map((s) => [s.nomination_id as string, s.total_score as number])
+    (scores ?? []).map((s) => [s.nomination_id as string, Number(s.total_score)])
   )
 
   const rows: AssignmentRow[] = (assignments ?? []).map((a) => {
@@ -53,20 +58,28 @@ export default async function DashboardPage() {
       id?: string
       nomination_id?: string
       nominee_name?: string
+      designation?: string
       company?: string
       master_category?: string
       category_key?: string
+      editorial_summary?: { summary?: string | null } | { summary?: string | null }[] | null
     } | null
+    const nomId = nom?.id ?? ''
+    const es = Array.isArray(nom?.editorial_summary)
+      ? nom?.editorial_summary[0]
+      : nom?.editorial_summary
     return {
       id: a.id,
-      status: a.status,
-      nomination_id: nom?.id ?? '',
+      status: scoreMap.has(nomId) ? 'scored' : 'pending',
+      nomination_id: nomId,
       nomination_display_id: nom?.nomination_id ?? '',
       nominee_name: nom?.nominee_name ?? '',
+      designation: nom?.designation ?? '',
       company: nom?.company ?? '',
       master_category: nom?.master_category ?? '',
       category_key: nom?.category_key ?? '',
-      score: scoreMap.get(nom?.id ?? '') ?? null,
+      score: scoreMap.get(nomId) ?? null,
+      summary: es?.summary ?? null,
     }
   })
 

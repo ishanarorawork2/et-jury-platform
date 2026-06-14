@@ -42,6 +42,7 @@ export default function ReviewModalProvider({ children }: { children: React.Reac
     /* eslint-disable react-hooks/set-state-in-effect */
     setLoading(true)
     setError(null)
+    setData(null)
     /* eslint-enable react-hooks/set-state-in-effect */
     fetch(`/api/nominations/${currentId}/review`)
       .then(async (r) => {

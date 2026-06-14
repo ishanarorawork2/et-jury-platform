@@ -43,7 +43,7 @@ export async function PATCH(
 
   const { data: current, error: fetchError } = await service
     .from('assignments')
-    .select('id, nomination_id, juror_id, status')
+    .select('id, nomination_id, juror_id')
     .eq('id', id)
     .single()
 
@@ -53,7 +53,17 @@ export async function PATCH(
   if (current.juror_id === juror_id) {
     return NextResponse.json(current) // no-op
   }
-  if (current.status === 'scored') {
+  // Scored state derives from the score's existence — a juror who has submitted a
+  // score is locked (reassigning would orphan that score).
+  const { data: existingScore } = await service
+    .from('scores')
+    .select('id')
+    .eq('nomination_id', current.nomination_id)
+    .eq('juror_id', current.juror_id)
+    .limit(1)
+    .maybeSingle()
+
+  if (existingScore) {
     return NextResponse.json(
       { error: 'This juror has already scored — remove the assignment instead of reassigning' },
       { status: 409 }

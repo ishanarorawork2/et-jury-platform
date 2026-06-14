@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { Award, Download, Medal, TriangleAlert } from 'lucide-react'
+import { Award, Download, Lock, Medal, TriangleAlert } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Select } from '@/components/ui/select'
@@ -24,9 +24,23 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { categoryLabel } from '@/lib/categories'
 import { useReviewModal } from '@/components/nomination/ReviewModalProvider'
+import { resolveStage, type LifecycleStatus, type NominationLike } from '@/lib/status'
 import { cn } from '@/lib/utils'
+import { ScoreAuditPanel } from '@/components/admin/ScoreAuditPanel'
+import { CategoryFinalizeBar } from '@/components/admin/CategoryFinalizeBar'
+import { ValidationSummary } from '@/components/admin/ValidationSummary'
+import { JurorSubmissionDots } from '@/components/pipeline/JurorSubmissionDots'
+import { PipelineStepper } from '@/components/pipeline/PipelineStepper'
 
-type JurorScore = { juror_id: string; juror_name: string; total_score: number }
+export type JurorScore = {
+  juror_id: string
+  juror_name: string
+  total_score: number
+  version: number
+  criteria_scores_json: Record<string, number> | null
+  comment: string | null
+  submitted_at: string
+}
 
 export type ResultRow = {
   id: string
@@ -40,9 +54,30 @@ export type ResultRow = {
   juror_scores: JurorScore[]
   rank: number | null
   tied: boolean
+  lifecycle_status: LifecycleStatus
+  assigned_count: number
+  scored_count: number
+  divergence: number | null
+  finalized: boolean
+  snapshot: { rank: number | null; final_score: number | null; finalized_at: string; finalized_by_name: string | null } | null
 }
 
-function RankChip({ rank, tied }: { rank: number | null; tied: boolean }) {
+export type FinalizedMeta = { count: number; finalized_at: string; finalized_by_name: string | null }
+
+function toNominationLike(r: ResultRow): NominationLike {
+  return {
+    lifecycle_status: r.lifecycle_status,
+    assigned_count: r.assigned_count,
+    scored_count: r.scored_count,
+    complete: r.complete,
+    is_finalized: r.finalized,
+    final_score: r.final_score,
+    divergence: r.divergence,
+    juror_scores: r.juror_scores.map((j) => ({ total_score: j.total_score, criteria_scores_json: j.criteria_scores_json })),
+  }
+}
+
+function RankChip({ rank, tied, locked }: { rank: number | null; tied: boolean; locked?: boolean }) {
   if (rank == null) return <span className="text-muted-foreground/50">—</span>
   const medal =
     rank === 1
@@ -53,23 +88,21 @@ function RankChip({ rank, tied }: { rank: number | null; tied: boolean }) {
           ? 'bg-[oklch(0.78_0.08_50)] text-[oklch(0.32_0.06_50)]'
           : 'bg-muted text-muted-foreground'
   return (
-    <span
-      className={cn(
-        'inline-flex h-6 min-w-6 items-center justify-center rounded-full px-1.5 text-xs font-semibold tabular-nums',
-        medal,
-        tied && 'ring-1 ring-warning'
-      )}
-      title={tied ? 'Tied — manual review required' : undefined}
-    >
-      {rank}
-      {tied ? '=' : ''}
+    <span className="inline-flex items-center gap-1">
+      <span
+        className={cn(
+          'inline-flex h-6 min-w-6 items-center justify-center rounded-full px-1.5 text-xs font-semibold tabular-nums',
+          medal,
+          tied && 'ring-1 ring-warning'
+        )}
+        title={tied ? 'Tied — manual review required' : undefined}
+      >
+        {rank}
+        {tied ? '=' : ''}
+      </span>
+      {locked && <Lock className="size-3 text-primary" />}
     </span>
   )
-}
-
-function divergence(scores: JurorScore[]): number | null {
-  if (scores.length < 2) return null
-  return Math.abs(scores[0].total_score - scores[1].total_score)
 }
 
 function Histogram({ rows }: { rows: ResultRow[] }) {
@@ -83,9 +116,7 @@ function Histogram({ rows }: { rows: ResultRow[] }) {
   const peak = Math.max(...bins, 1)
   return (
     <div className="card-surface p-4">
-      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-        Score distribution
-      </p>
+      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Score distribution</p>
       <div className="mt-3 flex h-20 items-end gap-1">
         {bins.map((count, i) => (
           <div key={i} className="flex flex-1 flex-col items-center justify-end gap-1">
@@ -121,20 +152,14 @@ function Podium({ rows, onSelect }: { rows: ResultRow[]; onSelect: (r: ResultRow
           <Medal
             className={cn(
               'size-7 shrink-0',
-              r.rank === 1
-                ? 'text-[oklch(0.75_0.14_85)]'
-                : r.rank === 2
-                  ? 'text-[oklch(0.7_0_0)]'
-                  : 'text-[oklch(0.62_0.1_50)]'
+              r.rank === 1 ? 'text-[oklch(0.75_0.14_85)]' : r.rank === 2 ? 'text-[oklch(0.7_0_0)]' : 'text-[oklch(0.62_0.1_50)]'
             )}
           />
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-semibold text-foreground">{r.nominee_name}</p>
             <p className="truncate text-xs text-muted-foreground">{r.company}</p>
           </div>
-          <span className="text-lg font-semibold tabular-nums text-foreground">
-            {r.final_score?.toFixed(1)}
-          </span>
+          <span className="text-lg font-semibold tabular-nums text-foreground">{r.final_score?.toFixed(1)}</span>
         </button>
       ))}
     </div>
@@ -143,8 +168,12 @@ function Podium({ rows, onSelect }: { rows: ResultRow[]; onSelect: (r: ResultRow
 
 export default function ResultsBrowser({
   categoryResults,
+  finalizedByCategory,
+  divergenceThreshold,
 }: {
   categoryResults: Record<string, ResultRow[]>
+  finalizedByCategory: Record<string, FinalizedMeta>
+  divergenceThreshold: number
 }) {
   const [master, setMaster] = useState('')
   const [sub, setSub] = useState('')
@@ -167,8 +196,8 @@ export default function ResultsBrowser({
         id: 'rank',
         header: 'Rank',
         accessorFn: (r) => r.rank ?? 999,
-        cell: ({ row }) => <RankChip rank={row.original.rank} tied={row.original.tied} />,
-        size: 64,
+        cell: ({ row }) => <RankChip rank={row.original.rank} tied={row.original.tied} locked={row.original.finalized} />,
+        size: 72,
       },
       {
         accessorKey: 'nominee_name',
@@ -186,41 +215,50 @@ export default function ResultsBrowser({
         cell: ({ row }) => <span className="text-muted-foreground">{categoryLabel(row.original.category_key)}</span>,
       },
       {
+        id: 'lifecycle',
+        header: 'Lifecycle',
+        enableSorting: false,
+        cell: ({ row }) => {
+          const { states } = resolveStage(toNominationLike(row.original), { divergenceThreshold })
+          return <PipelineStepper variant="inline" states={states} lifecycle={row.original.lifecycle_status} />
+        },
+      },
+      {
         id: 'final',
         header: 'Final',
         accessorFn: (r) => r.final_score ?? -1,
         cell: ({ row }) =>
           row.original.final_score != null ? (
-            <span className="font-semibold tabular-nums text-foreground">
-              {row.original.final_score.toFixed(1)}
-            </span>
+            <span className="font-semibold tabular-nums text-foreground">{row.original.final_score.toFixed(1)}</span>
           ) : (
             <Badge variant="warning">Incomplete</Badge>
           ),
       },
       {
         id: 'jurors',
-        header: 'Juror scores',
+        header: 'Jurors',
         enableSorting: false,
         cell: ({ row }) => {
-          const js = row.original.juror_scores
-          const div = divergence(js)
+          const div = row.original.divergence
           return (
-            <div className="flex items-center gap-2 text-sm tabular-nums">
-              <span className="text-muted-foreground">{js[0]?.total_score ?? '—'}</span>
-              <span className="text-muted-foreground/40">/</span>
-              <span className="text-muted-foreground">{js[1]?.total_score ?? '—'}</span>
-              {div != null && div >= 15 && (
-                <Badge variant="warning" className="ml-1">
-                  Δ{div.toFixed(0)}
-                </Badge>
+            <div className="flex items-center gap-2">
+              <JurorSubmissionDots
+                jurors={row.original.juror_scores.map((j) => ({
+                  juror_id: j.juror_id,
+                  juror_name: j.juror_name,
+                  submitted: true,
+                  submitted_at: j.submitted_at,
+                }))}
+              />
+              {div != null && div >= divergenceThreshold && (
+                <Badge variant="warning">Δ{Math.round(div)}</Badge>
               )}
             </div>
           )
         },
       },
     ],
-    []
+    [divergenceThreshold]
   )
 
   return (
@@ -254,21 +292,29 @@ export default function ResultsBrowser({
         if (catRows.length === 0) return null
 
         const completeCount = catRows.filter((r) => r.complete).length
+        const incompleteCount = catRows.length - completeCount
         const tieCount = catRows.filter((r) => r.tied).length
+        const divergentCount = catRows.filter((r) => r.divergence != null && r.divergence >= divergenceThreshold).length
         const subCategories = [...new Set(catRows.map((r) => r.category_key))].sort()
         const tiedRows = catRows.filter((r) => r.tied)
 
+        // Finalize is per sub-category (category_key). Show the bar when a single
+        // sub-category is in view; otherwise show a roll-up of how many of the
+        // master's sub-categories are already finalized.
+        const finalizedSubs = subCategories.filter((k) => finalizedByCategory[k])
+
         return (
           <div key={cat} className="mb-12">
-            <div className="mb-4 flex flex-wrap items-center gap-3">
+            <div className="mb-3 flex flex-wrap items-center gap-3">
               <Award className="size-5 text-primary" />
               <h2 className="text-base font-semibold text-foreground">{cat}</h2>
               <Badge variant="info">
                 {completeCount} of {catRows.length} scored
               </Badge>
-              {tieCount > 0 && (
-                <Badge variant="warning" dot>
-                  {tieCount} tied
+              {finalizedSubs.length > 0 && (
+                <Badge variant="accent" className="gap-1">
+                  <Lock className="size-3" />
+                  {finalizedSubs.length} of {subCategories.length} categories finalized
                 </Badge>
               )}
               <div className="ml-auto">
@@ -284,9 +330,7 @@ export default function ResultsBrowser({
                   <DropdownMenuContent>
                     <DropdownMenuLabel>Export {cat}</DropdownMenuLabel>
                     <DropdownMenuItem
-                      render={
-                        <a href={`/api/admin/results/export?scope=master&master=${encodeURIComponent(cat)}`} />
-                      }
+                      render={<a href={`/api/admin/results/export?scope=master&master=${encodeURIComponent(cat)}`} />}
                     >
                       <Download className="size-4" />
                       Full category (.xlsx)
@@ -305,6 +349,40 @@ export default function ResultsBrowser({
                 </DropdownMenu>
               </div>
             </div>
+
+            <ValidationSummary
+              className="mb-3"
+              complete={completeCount}
+              incomplete={incompleteCount}
+              divergent={divergentCount}
+              tied={tieCount}
+              divergenceThreshold={divergenceThreshold}
+            />
+
+            {sub ? (
+              <div className="mb-4">
+                <CategoryFinalizeBar
+                  categoryKey={sub}
+                  label={categoryLabel(sub)}
+                  completeCount={completeCount}
+                  incompleteCount={incompleteCount}
+                  tiedCount={tieCount}
+                  divergentCount={divergentCount}
+                  topThree={catRows
+                    .filter((r) => r.complete && r.rank != null && r.rank <= 3)
+                    .slice(0, 3)
+                    .map((r) => ({ name: r.nominee_name, score: r.final_score }))}
+                  finalized={finalizedByCategory[sub] ?? null}
+                  divergenceThreshold={divergenceThreshold}
+                />
+              </div>
+            ) : (
+              subCategories.length > 1 && (
+                <p className="mb-4 text-xs text-muted-foreground">
+                  Pick a sub-category above to finalize &amp; lock its ranking.
+                </p>
+              )
+            )}
 
             <div className="mb-4 grid gap-4 lg:grid-cols-3">
               <div className="lg:col-span-2">
@@ -326,7 +404,7 @@ export default function ResultsBrowser({
                       onClick={() => setSelected(r)}
                       className="inline-flex items-center gap-2 rounded-lg border border-warning-border bg-card px-2.5 py-1 text-xs"
                     >
-                      <RankChip rank={r.rank} tied={r.tied} />
+                      <RankChip rank={r.rank} tied={r.tied} locked={r.finalized} />
                       <span className="font-medium text-foreground">{r.nominee_name}</span>
                       <span className="tabular-nums text-muted-foreground">{r.final_score?.toFixed(1)}</span>
                     </button>
@@ -349,73 +427,29 @@ export default function ResultsBrowser({
         )
       })}
 
-      {/* Score-breakdown drawer */}
+      {/* Score-audit drawer */}
       <Drawer open={selected != null} onOpenChange={(o) => !o && setSelected(null)}>
         {selected && (
-          <DrawerContent size="md">
+          <DrawerContent size="lg">
             <DrawerHeader>
               <div className="flex items-center gap-2">
-                <RankChip rank={selected.rank} tied={selected.tied} />
+                <RankChip rank={selected.rank} tied={selected.tied} locked={selected.finalized} />
                 <DrawerTitle>{selected.nominee_name}</DrawerTitle>
               </div>
               <DrawerDescription>
                 {selected.company} · {categoryLabel(selected.category_key)}
               </DrawerDescription>
             </DrawerHeader>
-            <DrawerBody className="space-y-6">
-              <div className="flex items-baseline gap-2">
-                <span className="text-4xl font-semibold tabular-nums text-foreground">
-                  {selected.final_score != null ? selected.final_score.toFixed(1) : '—'}
-                </span>
-                <span className="text-sm text-muted-foreground">final score</span>
-                {!selected.complete && <Badge variant="warning">Incomplete</Badge>}
-              </div>
-
-              <div>
-                <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  Juror breakdown
-                </p>
-                <div className="space-y-2">
-                  {selected.juror_scores.length === 0 && (
-                    <p className="text-sm text-muted-foreground">No scores submitted yet.</p>
-                  )}
-                  {selected.juror_scores.map((js) => (
-                    <div
-                      key={js.juror_id}
-                      className="flex items-center justify-between rounded-lg border border-border bg-muted/30 px-3 py-2"
-                    >
-                      <span className="text-sm font-medium text-foreground">{js.juror_name}</span>
-                      <span className="text-sm font-semibold tabular-nums text-foreground">
-                        {js.total_score}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-                {(() => {
-                  const div = divergence(selected.juror_scores)
-                  if (div == null) return null
-                  const high = div >= 15
-                  return (
-                    <p className={cn('mt-2 flex items-center gap-1.5 text-xs', high ? 'text-warning' : 'text-muted-foreground')}>
-                      {high && <TriangleAlert className="size-3.5" />}
-                      Juror divergence: {div.toFixed(0)} point{div === 1 ? '' : 's'}
-                      {high && ' — consider review'}
-                    </p>
-                  )
-                })()}
-              </div>
-
-              <Button
-                variant="outline"
-                className="w-full"
-                onClick={() => {
+            <DrawerBody>
+              <ScoreAuditPanel
+                nominationId={selected.id}
+                divergenceThreshold={divergenceThreshold}
+                onOpenReview={() => {
                   const r = selected
                   setSelected(null)
                   openReview(rowIdsFor(categoryResults, r), r.id)
                 }}
-              >
-                Open full review
-              </Button>
+              />
             </DrawerBody>
           </DrawerContent>
         )}

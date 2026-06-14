@@ -1,11 +1,13 @@
 'use client'
 
-import { useMemo } from 'react'
-import { Inbox, ListChecks, CheckCircle2, Clock, ArrowRight } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { Inbox, ListChecks, CheckCircle2, Clock, ArrowRight, Eye } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Select } from '@/components/ui/select'
 import { StatCard } from '@/components/ui/stat-card'
 import { EmptyState } from '@/components/ui/empty-state'
+import { Tooltip } from '@/components/ui/tooltip'
 import { DataGrid, type ColumnDef, type FilterDef } from '@/components/ui/data-grid'
 import { categoryLabel } from '@/lib/categories'
 import { scoreStatus } from '@/lib/status'
@@ -17,39 +19,55 @@ type Row = {
   nomination_id: string
   nomination_display_id: string
   nominee_name: string
+  designation: string
   company: string
   master_category: string
   category_key: string
   score: number | null
+  summary: string | null
 }
 
 export default function AssignmentsTable({ rows }: { rows: Row[] }) {
   const open = useReviewModal()
 
+  const [categoryFilter, setCategoryFilter] = useState('')
+  const [subCategoryFilter, setSubCategoryFilter] = useState('')
+
   const scored = rows.filter((r) => r.status === 'scored').length
   const pending = rows.length - scored
   const pct = rows.length > 0 ? Math.round((scored / rows.length) * 100) : 0
 
-  const masterFilter = useMemo<FilterDef>(
-    () => ({
-      id: 'master_category',
-      label: 'Category',
-      options: Array.from(new Set(rows.map((r) => r.master_category)))
-        .sort()
-        .map((m) => ({ value: m, label: m })),
-    }),
+  const categoryOptions = useMemo(
+    () => Array.from(new Set(rows.map((r) => r.master_category))).sort().map((m) => ({ value: m, label: m })),
     [rows]
   )
 
-  const subFilter = useMemo<FilterDef>(
-    () => ({
-      id: 'category_key',
-      label: 'Sub-category',
-      options: Array.from(new Set(rows.map((r) => r.category_key)))
+  const subCategoryOptions = useMemo(
+    () =>
+      Array.from(new Set(rows.map((r) => r.category_key)))
         .sort((a, b) => categoryLabel(a).localeCompare(categoryLabel(b)))
         .map((k) => ({ value: k, label: categoryLabel(k) })),
-    }),
     [rows]
+  )
+
+  const filteredRows = useMemo(
+    () =>
+      rows
+        .filter((r) => !categoryFilter || r.master_category === categoryFilter)
+        .filter((r) => !subCategoryFilter || r.category_key === subCategoryFilter),
+    [rows, categoryFilter, subCategoryFilter]
+  )
+
+  const statusFilter = useMemo<FilterDef>(
+    () => ({
+      id: 'status',
+      label: 'Status',
+      options: [
+        { value: 'pending', label: 'Pending' },
+        { value: 'scored', label: 'Scored' },
+      ],
+    }),
+    []
   )
 
   const columns = useMemo<ColumnDef<Row>[]>(
@@ -57,14 +75,43 @@ export default function AssignmentsTable({ rows }: { rows: Row[] }) {
       {
         accessorKey: 'nominee_name',
         header: 'Nominee',
-        cell: ({ row }) => <span className="font-medium text-foreground">{row.original.nominee_name}</span>,
+        cell: ({ row }) => (
+          <div className="min-w-0">
+            <p className="font-semibold text-sm text-foreground leading-snug truncate">
+              {row.original.nominee_name}
+            </p>
+            {row.original.designation && (
+              <p className="text-xs text-muted-foreground leading-snug truncate mt-0.5">
+                {row.original.designation}
+              </p>
+            )}
+          </div>
+        ),
+        size: 200,
       },
-      { accessorKey: 'company', header: 'Company', cell: ({ row }) => <span className="text-muted-foreground">{row.original.company}</span> },
-      { accessorKey: 'master_category', header: 'Category', cell: ({ row }) => <span className="text-muted-foreground">{row.original.master_category}</span> },
       {
-        accessorKey: 'category_key',
-        header: 'Sub-category',
-        cell: ({ row }) => <span className="text-muted-foreground">{categoryLabel(row.original.category_key)}</span>,
+        accessorKey: 'company',
+        header: 'Company',
+        cell: ({ row }) => (
+          <span className="text-sm text-muted-foreground">{row.original.company}</span>
+        ),
+        size: 180,
+      },
+      {
+        id: 'summary',
+        header: 'Executive Summary',
+        enableSorting: false,
+        cell: ({ row }) => {
+          const text = row.original.summary
+          if (!text) return <span className="text-muted-foreground">—</span>
+          return (
+            <Tooltip content={<span className="block max-w-xs leading-relaxed">{text}</span>}>
+              <p className="text-sm text-foreground line-clamp-2 leading-snug cursor-default">
+                {text}
+              </p>
+            </Tooltip>
+          )
+        },
       },
       {
         accessorKey: 'status',
@@ -77,30 +124,48 @@ export default function AssignmentsTable({ rows }: { rows: Row[] }) {
             </Badge>
           )
         },
+        size: 100,
       },
       {
         accessorKey: 'score',
         header: 'Score',
         cell: ({ row }) =>
           row.original.score !== null ? (
-            <span className="font-semibold tabular-nums text-foreground">{row.original.score}</span>
+            <span className="font-semibold tabular-nums text-foreground">
+              {row.original.score.toFixed(1)}{' '}
+              <span className="font-normal text-muted-foreground text-xs">/ 100</span>
+            </span>
           ) : (
             <span className="text-muted-foreground">—</span>
           ),
+        size: 96,
       },
       {
         id: 'action',
         header: '',
         enableSorting: false,
-        cell: ({ row }) => (
-          <span className="inline-flex items-center gap-1 text-sm font-medium text-primary">
-            {row.original.status === 'scored' ? 'Review' : 'Evaluate'}
-            <ArrowRight className="size-3.5" />
-          </span>
-        ),
+        cell: ({ row }) => {
+          const isScored = row.original.status === 'scored'
+          return (
+            <Tooltip content={isScored ? 'Review' : 'Evaluate'}>
+              <Button
+                size="icon-sm"
+                variant="ghost"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  open(filteredRows.map((r) => r.nomination_id), row.original.nomination_id)
+                }}
+                aria-label={isScored ? 'Review nomination' : 'Evaluate nomination'}
+              >
+                <Eye className="size-4" />
+              </Button>
+            </Tooltip>
+          )
+        },
+        size: 48,
       },
     ],
-    []
+    [filteredRows, open]
   )
 
   if (rows.length === 0) {
@@ -114,6 +179,27 @@ export default function AssignmentsTable({ rows }: { rows: Row[] }) {
   }
 
   const firstPending = rows.find((r) => r.status !== 'scored')
+
+  const categorySelects = (
+    <>
+      <Select
+        aria-label="Category"
+        value={categoryFilter}
+        onValueChange={(v) => { setCategoryFilter(v); setSubCategoryFilter('') }}
+        placeholder="All category"
+        options={[{ value: '', label: 'All category' }, ...categoryOptions]}
+        className="h-8"
+      />
+      <Select
+        aria-label="Sub-category"
+        value={subCategoryFilter}
+        onValueChange={setSubCategoryFilter}
+        placeholder="All sub-category"
+        options={[{ value: '', label: 'All sub-category' }, ...subCategoryOptions]}
+        className="h-8"
+      />
+    </>
+  )
 
   return (
     <div className="space-y-6">
@@ -147,13 +233,16 @@ export default function AssignmentsTable({ rows }: { rows: Row[] }) {
       )}
 
       <DataGrid
-        data={rows}
+        data={filteredRows}
         columns={columns}
         getRowId={(r) => r.nomination_id}
         searchPlaceholder="Search nominees…"
-        filters={[masterFilter, subFilter]}
+        filters={[statusFilter]}
+        toolbarStart={categorySelects}
         pageSize={25}
-        savedViewsKey="juror-assignments"
+        savedViewsKey="juror-assignments-v4"
+        enableDensityToggle={false}
+        enableColumnVisibility={false}
         onRowClick={(row, orderedIds) => open(orderedIds, row.nomination_id)}
       />
     </div>

@@ -1,6 +1,7 @@
 ﻿import { NextRequest, NextResponse } from 'next/server'
 import * as XLSX from 'xlsx'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
+import { fetchAll } from '@/lib/supabase/fetch-all'
 import {
   assembleByCategory, sheetForCategory, rankingsSheet, scorecardSheets, sheetName,
   type ExportData, type SheetDef,
@@ -16,21 +17,25 @@ async function requireAdmin() {
 
 async function loadExportData(): Promise<ExportData> {
   const service = createServiceClient()
-  const [{ data: nominations }, { data: summaries }, { data: assignments }, { data: scores }, { data: jurors }] =
-    await Promise.all([
-      service.from('nominations').select('id, nomination_id, nominee_name, company, designation, master_category, category_key, raw_data_json').order('nominee_name'),
-      service.from('editorial_summary').select('nomination_id, total_score, qualifies, summary, jury_notes, strategic_feedback, criteria_scores_json'),
-      service.from('assignments').select('nomination_id, juror_id, status'),
-      service.from('scores').select('nomination_id, juror_id, total_score, comment, version').order('version', { ascending: false }),
-      service.from('jury_users').select('id, name').eq('role', 'juror'),
-    ])
-  return {
-    nominations: (nominations ?? []) as ExportData['nominations'],
-    summaries: (summaries ?? []) as ExportData['summaries'],
-    assignments: (assignments ?? []) as ExportData['assignments'],
-    scores: (scores ?? []) as ExportData['scores'],
-    jurors: (jurors ?? []) as ExportData['jurors'],
-  }
+  const [nominations, summaries, rankings, assignments, scores, jurors] = await Promise.all([
+    fetchAll<ExportData['nominations'][number]>(
+      service, 'nominations',
+      'id, nomination_id, nominee_name, company, designation, master_category, category_key, raw_data_json'
+    ),
+    fetchAll<ExportData['summaries'][number]>(
+      service, 'editorial_summary',
+      'nomination_id, total_score, qualifies, summary, jury_notes, strategic_feedback, criteria_scores_json'
+    ),
+    // Pre-computed completion + rank, so the export matches the UI exactly.
+    fetchAll<ExportData['rankings'][number]>(
+      service, 'category_rankings',
+      'nomination_id, category_key, master_category, complete, final_score, rank, tied'
+    ),
+    fetchAll<ExportData['assignments'][number]>(service, 'assignments', 'nomination_id, juror_id'),
+    fetchAll<ExportData['scores'][number]>(service, 'latest_scores', 'nomination_id, juror_id, total_score, comment, version'),
+    fetchAll<ExportData['jurors'][number]>(service, 'jury_users', 'id, name'),
+  ])
+  return { nominations, summaries, rankings, assignments, scores, jurors }
 }
 
 function workbook(sheets: SheetDef[]): Buffer {

@@ -21,13 +21,27 @@ export type ExportSummary = {
   strategic_feedback: string | null
   criteria_scores_json: Record<string, number> | null
 }
-export type ExportAssignment = { nomination_id: string; juror_id: string; status: string }
+// Assignment shape no longer carries `status` — completion/scored state is read
+// from the views, not the assignment flag.
+export type ExportAssignment = { nomination_id: string; juror_id: string }
+// Latest score per (nomination, juror), straight from the latest_scores view.
 export type ExportScore = { nomination_id: string; juror_id: string; total_score: number; comment: string | null; version: number }
 export type ExportJuror = { id: string; name: string }
+// Pre-computed completion + ranking from the category_rankings view (uuid keyed).
+export type ExportRanking = {
+  nomination_id: string
+  category_key: string
+  master_category: string
+  complete: boolean
+  final_score: number | null
+  rank: number | null
+  tied: boolean
+}
 
 export type ExportData = {
   nominations: ExportNom[]
   summaries: ExportSummary[]
+  rankings: ExportRanking[]
   assignments: ExportAssignment[]
   scores: ExportScore[]
   jurors: ExportJuror[]
@@ -65,33 +79,35 @@ function flattenRaw(raw: Record<string, Record<string, string>>): Record<string,
   return out
 }
 
-// Build assembled records grouped & ranked by category_key (the award category).
+// Build assembled records grouped by category_key (the award category).
+// Completion, final score, rank and ties come pre-computed from the
+// category_rankings view — this guarantees the export matches the UI exactly.
 export function assembleByCategory(data: ExportData): Map<string, Assembled[]> {
   const jurorMap = new Map(data.jurors.map((j) => [j.id, j.name]))
   const summaryMap = new Map(data.summaries.map((s) => [s.nomination_id, s]))
+  const rankingMap = new Map(data.rankings.map((r) => [r.nomination_id, r]))
 
-  // Latest score (+comment) per nomination×juror — scores arrive version-desc.
-  const latest = new Map<string, ExportScore>()
+  // Latest scores per nomination (one row per juror, straight from the view).
+  const scoresByNom = new Map<string, ExportScore[]>()
   for (const s of data.scores) {
-    const k = `${s.nomination_id}:${s.juror_id}`
-    if (!latest.has(k)) latest.set(k, s)
-  }
-
-  const assignmentsByNom = new Map<string, ExportAssignment[]>()
-  for (const a of data.assignments) {
-    if (!assignmentsByNom.has(a.nomination_id)) assignmentsByNom.set(a.nomination_id, [])
-    assignmentsByNom.get(a.nomination_id)!.push(a)
+    if (!scoresByNom.has(s.nomination_id)) scoresByNom.set(s.nomination_id, [])
+    scoresByNom.get(s.nomination_id)!.push(s)
   }
 
   const records: Assembled[] = data.nominations.map((nom) => {
-    const scored = (assignmentsByNom.get(nom.id) ?? []).filter((a) => a.status === 'scored')
-    const complete = scored.length >= 2
-    const jurorResults: JurorResult[] = scored.map((a) => {
-      const sc = latest.get(`${nom.id}:${a.juror_id}`)
-      return { name: jurorMap.get(a.juror_id) ?? 'Unknown', total: sc?.total_score ?? 0, comment: sc?.comment ?? null }
-    })
-    const final_score = complete ? jurorResults.reduce((s, j) => s + j.total, 0) / 2 : null
-    return { nom, summary: summaryMap.get(nom.id) ?? null, complete, final_score, rank: null, tied: false, jurorResults }
+    const ranking = rankingMap.get(nom.id)
+    const jurorResults: JurorResult[] = (scoresByNom.get(nom.id) ?? [])
+      .map((s) => ({ name: jurorMap.get(s.juror_id) ?? 'Unknown', total: Number(s.total_score), comment: s.comment }))
+      .sort((a, b) => a.name.localeCompare(b.name))
+    return {
+      nom,
+      summary: summaryMap.get(nom.id) ?? null,
+      complete: ranking?.complete ?? false,
+      final_score: ranking?.final_score ?? null,
+      rank: ranking?.rank ?? null,
+      tied: ranking?.tied ?? false,
+      jurorResults,
+    }
   })
 
   const byCat = new Map<string, Assembled[]>()
@@ -100,18 +116,12 @@ export function assembleByCategory(data: ExportData): Map<string, Assembled[]> {
     byCat.get(r.nom.category_key)!.push(r)
   }
 
-  // Rank complete records within each category (SCR: 1,2,2,4); ties flagged.
+  // Order within each category: ranked (complete) rows first by rank, rest after.
   for (const recs of byCat.values()) {
-    const complete = recs.filter((r) => r.complete).sort((a, b) => (b.final_score ?? 0) - (a.final_score ?? 0))
-    for (let i = 0; i < complete.length; i++) {
-      if (i > 0 && complete[i].final_score === complete[i - 1].final_score) {
-        complete[i].rank = complete[i - 1].rank
-        complete[i].tied = true
-        complete[i - 1].tied = true
-      } else {
-        complete[i].rank = i + 1
-      }
-    }
+    recs.sort((a, b) => {
+      if (a.complete !== b.complete) return a.complete ? -1 : 1
+      return (a.rank ?? 9999) - (b.rank ?? 9999)
+    })
   }
   return byCat
 }
@@ -206,11 +216,9 @@ export function rankingsSheet(byCat: Map<string, Assembled[]>): SheetDef {
 export function scorecardSheets(data: ExportData): SheetDef[] {
   const jurorMap = new Map(data.jurors.map((j) => [j.id, j.name]))
   const nomMap = new Map(data.nominations.map((n) => [n.id, n]))
+  // latest_scores has one row per (nomination, juror); presence ⇒ submitted.
   const latest = new Map<string, ExportScore>()
-  for (const s of data.scores) {
-    const k = `${s.nomination_id}:${s.juror_id}`
-    if (!latest.has(k)) latest.set(k, s)
-  }
+  for (const s of data.scores) latest.set(`${s.nomination_id}:${s.juror_id}`, s)
 
   const detailHeaders = ['Jury Member', 'Nomination Id', 'Nominee', 'Category', 'Status', 'Score Given', 'Comments']
   const detail: (string | number)[][] = []
@@ -221,7 +229,7 @@ export function scorecardSheets(data: ExportData): SheetDef[] {
     if (!nom) continue
     const jurorName = jurorMap.get(a.juror_id) ?? 'Unknown'
     const sc = latest.get(`${a.nomination_id}:${a.juror_id}`)
-    const submitted = a.status === 'scored'
+    const submitted = !!sc
     detail.push([
       jurorName,
       nom.nomination_id,

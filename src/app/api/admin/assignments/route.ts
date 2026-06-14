@@ -1,5 +1,6 @@
 ﻿import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
+import { fetchAll } from '@/lib/supabase/fetch-all'
 
 async function requireAdmin() {
   const supabase = await createClient()
@@ -16,23 +17,41 @@ export async function GET(req: NextRequest) {
 
   const { searchParams } = new URL(req.url)
   const category = searchParams.get('category')
-  if (!category) return NextResponse.json({ error: 'category query param required' }, { status: 400 })
 
   const service = createServiceClient()
   // `editorial_summary!inner` restricts to nominations that have a matched summary —
   // only those are eligible for jury assignment.
-  const { data, error } = await service
+  let query = service
     .from('nominations')
     .select(`
       id, nomination_id, nominee_name, company, master_category, category_key,
       editorial_summary!inner ( id ),
-      assignments ( id, juror_id, status, jury_users!juror_id ( id, name ) )
+      assignments ( id, juror_id, jury_users!juror_id ( id, name ) )
     `)
-    .eq('master_category', category)
     .order('nominee_name')
 
+  if (category) query = query.eq('master_category', category)
+
+  const { data, error } = await query
+
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json(data)
+
+  // Derive each assignment's scored state from the score's existence, not the
+  // retired assignments.status flag (submit no longer writes it).
+  type Assignment = { id: string; juror_id: string; status?: string; jury_users: unknown }
+  type Nom = { id: string; assignments: Assignment[] }
+  const noms = (data ?? []) as Nom[]
+  const scored = new Set(
+    (await fetchAll<{ nomination_id: string; juror_id: string }>(service, 'latest_scores', 'nomination_id, juror_id'))
+      .map((s) => `${s.nomination_id}:${s.juror_id}`)
+  )
+  for (const n of noms) {
+    for (const a of n.assignments) {
+      a.status = scored.has(`${n.id}:${a.juror_id}`) ? 'scored' : 'pending'
+    }
+  }
+
+  return NextResponse.json(noms)
 }
 
 export async function POST(req: NextRequest) {

@@ -1,6 +1,7 @@
-﻿import { NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
-import type { SupabaseClient } from '@supabase/supabase-js'
+import { fetchAll } from '@/lib/supabase/fetch-all'
+import type { LifecycleStatus } from '@/lib/status'
 
 async function requireAdmin() {
   const supabase = await createClient()
@@ -11,31 +12,9 @@ async function requireAdmin() {
   return user
 }
 
-// PostgREST caps a single select at 1000 rows by default. The assignments and
-// nominations tables exceed that, so page through with .range() and concatenate
-// — otherwise per-juror and per-category totals are silently truncated.
-async function fetchAll<T>(
-  service: SupabaseClient,
-  table: string,
-  columns: string
-): Promise<T[]> {
-  const pageSize = 1000
-  const rows: T[] = []
-  for (let from = 0; ; from += pageSize) {
-    const { data, error } = await service
-      .from(table)
-      .select(columns)
-      .range(from, from + pageSize - 1)
-    if (error) throw new Error(error.message)
-    if (!data || data.length === 0) break
-    rows.push(...(data as T[]))
-    if (data.length < pageSize) break
-  }
-  return rows
-}
-
-type AssignmentRow = { id: string; juror_id: string; nomination_id: string; status: string }
-type NominationRow = { id: string; master_category: string }
+type AssignmentRow = { juror_id: string; nomination_id: string }
+type LatestScoreRow = { juror_id: string; nomination_id: string }
+type ResultRow = { master_category: string; lifecycle_status: LifecycleStatus; assigned_count: number; complete: boolean; is_finalized: boolean }
 
 export async function GET() {
   const admin = await requireAdmin()
@@ -45,57 +24,47 @@ export async function GET() {
 
   let jurors: { id: string; name: string }[] | null
   let assignments: AssignmentRow[]
-  let nominations: NominationRow[]
+  let scores: LatestScoreRow[]
+  let results: ResultRow[]
   try {
-    const [jurorsRes, assignmentRows, nominationRows] = await Promise.all([
+    const [jurorsRes, assignmentRows, scoreRows, resultRows] = await Promise.all([
       service.from('jury_users').select('id, name').eq('role', 'juror').order('name'),
-      fetchAll<AssignmentRow>(service, 'assignments', 'id, juror_id, nomination_id, status'),
-      fetchAll<NominationRow>(service, 'nominations', 'id, master_category'),
+      fetchAll<AssignmentRow>(service, 'assignments', 'juror_id, nomination_id'),
+      fetchAll<LatestScoreRow>(service, 'latest_scores', 'juror_id, nomination_id'),
+      fetchAll<ResultRow>(service, 'nomination_results', 'master_category, lifecycle_status, assigned_count, complete, is_finalized'),
     ])
     jurors = jurorsRes.data
     assignments = assignmentRows
-    nominations = nominationRows
+    scores = scoreRows
+    results = resultRows
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 })
   }
 
-  // Per-juror stats
-  const jurorStats = (jurors ?? []).map(j => {
-    const ja = (assignments ?? []).filter(a => a.juror_id === j.id)
-    const scored = ja.filter(a => a.status === 'scored').length
+  // Per-juror: scored = assignments that have a latest_scores row (completion
+  // derives from the score's existence, never assignments.status).
+  const scoredKeys = new Set(scores.map((s) => `${s.juror_id}:${s.nomination_id}`))
+  const jurorStats = (jurors ?? []).map((j) => {
+    const ja = assignments.filter((a) => a.juror_id === j.id)
+    const scored = ja.filter((a) => scoredKeys.has(`${j.id}:${a.nomination_id}`)).length
     return { id: j.id, name: j.name, assigned: ja.length, scored, pending: ja.length - scored }
   })
 
-  // Per-category stats
-  const categories = [...new Set((nominations ?? []).map(n => n.master_category))].sort()
-  const categoryStats = categories.map(cat => {
-    const catNomIds = new Set(
-      (nominations ?? []).filter(n => n.master_category === cat).map(n => n.id)
-    )
-    const catAssignments = (assignments ?? []).filter(a => catNomIds.has(a.nomination_id))
-
-    const byNom = new Map<string, typeof catAssignments>()
-    for (const a of catAssignments) {
-      if (!byNom.has(a.nomination_id)) byNom.set(a.nomination_id, [])
-      byNom.get(a.nomination_id)!.push(a)
-    }
-
-    let fullyAssigned = 0
-    let complete = 0
-    for (const aList of byNom.values()) {
-      if (aList.length >= 2) {
-        fullyAssigned++
-        if (aList.every(a => a.status === 'scored')) complete++
-      }
-    }
-
+  // Per-category: counts straight off the canonical lifecycle status.
+  const categories = [...new Set(results.map((r) => r.master_category))].sort()
+  const categoryStats = categories.map((cat) => {
+    const rows = results.filter((r) => r.master_category === cat)
+    const fullyAssigned = rows.filter((r) => r.assigned_count >= 2).length
+    const complete = rows.filter((r) => r.complete).length
+    const finalized = rows.filter((r) => r.is_finalized).length
     return {
       category: cat,
-      total: catNomIds.size,
+      total: rows.length,
       fullyAssigned,
       complete,
+      finalized,
       pending: fullyAssigned - complete,
-      unassigned: catNomIds.size - fullyAssigned,
+      unassigned: rows.length - fullyAssigned,
     }
   })
 

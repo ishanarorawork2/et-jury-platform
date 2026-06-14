@@ -1,4 +1,4 @@
-import type { ColumnDef, SortingState } from '@tanstack/react-table'
+import type { ColumnDef, SortingState, VisibilityState } from '@tanstack/react-table'
 
 export type FilterOption = { value: string; label: string }
 
@@ -26,10 +26,13 @@ export type DataGridProps<T> = {
   rowActions?: (row: T) => React.ReactNode
   density?: Density
   enableDensityToggle?: boolean
+  enableColumnVisibility?: boolean
   pageSize?: number
   /** Persist sorting/visibility/filters/density to localStorage under this key. */
   savedViewsKey?: string
   initialSorting?: SortingState
+  /** Columns to hide by default (before any saved view is restored). */
+  initialColumnVisibility?: VisibilityState
   /** Called on row click; receives the row and the current ordered row ids (for modal prev/next). */
   onRowClick?: (row: T, orderedIds: string[]) => void
   /** Extra controls on the left of the toolbar (e.g. saved-view tabs). */
