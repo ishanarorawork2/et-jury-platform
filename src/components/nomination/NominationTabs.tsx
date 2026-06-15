@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import { FileText, Sparkles, ClipboardCheck } from 'lucide-react'
 import RawDataView from './RawDataView'
 import EditorialSummaryView, { type EditorialSummary } from './EditorialSummaryView'
@@ -25,6 +26,7 @@ type Props = {
   role: string
   rubric: Criterion[]
   existingScore: SubmittedScore
+  initialTab?: string
 }
 
 export default function NominationTabs({
@@ -34,17 +36,20 @@ export default function NominationTabs({
   role,
   rubric,
   existingScore,
+  initialTab,
 }: Props) {
+  const [activeTab, setActiveTab] = useState(initialTab ?? 'summary')
+
   return (
-    <Tabs defaultValue="nomination">
+    <Tabs value={activeTab} onValueChange={setActiveTab}>
       <TabsList>
-        <TabsTab value="nomination">
-          <FileText className="size-4" />
-          Nomination
-        </TabsTab>
         <TabsTab value="summary">
           <Sparkles className="size-4" />
           Editorial Summary
+        </TabsTab>
+        <TabsTab value="nomination">
+          <FileText className="size-4" />
+          Nomination
         </TabsTab>
         <TabsTab value="evaluation">
           <ClipboardCheck className="size-4" />
@@ -53,11 +58,11 @@ export default function NominationTabs({
       </TabsList>
 
       <div className="mt-6">
-        <TabsPanel value="nomination">
-          <RawDataView rawData={rawData} />
-        </TabsPanel>
         <TabsPanel value="summary">
           <EditorialSummaryView summary={summary} />
+        </TabsPanel>
+        <TabsPanel value="nomination">
+          <RawDataView rawData={rawData} />
         </TabsPanel>
         <TabsPanel value="evaluation">
           {role === 'juror' ? (

@@ -5,7 +5,7 @@ import { X, ChevronLeft, ChevronRight } from 'lucide-react'
 import NominationReview, { type ReviewData } from './NominationReview'
 import { Skeleton } from '@/components/ui/skeleton'
 
-type OpenFn = (ids: string[], id: string) => void
+type OpenFn = (ids: string[], id: string, initialTab?: string) => void
 const ReviewModalContext = createContext<OpenFn | null>(null)
 
 export function useReviewModal(): OpenFn {
@@ -17,14 +17,16 @@ export function useReviewModal(): OpenFn {
 export default function ReviewModalProvider({ children }: { children: React.ReactNode }) {
   const [ids, setIds] = useState<string[]>([])
   const [index, setIndex] = useState<number>(-1)
+  const [initialTab, setInitialTab] = useState<string | undefined>(undefined)
   const [data, setData] = useState<ReviewData | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const open = useCallback((list: string[], id: string) => {
+  const open = useCallback((list: string[], id: string, tab?: string) => {
     const i = list.indexOf(id)
     setIds(list)
     setIndex(i >= 0 ? i : 0)
+    setInitialTab(tab)
   }, [])
 
   const close = useCallback(() => {
@@ -56,8 +58,8 @@ export default function ReviewModalProvider({ children }: { children: React.Reac
     return () => { cancelled = true }
   }, [currentId])
 
-  const goPrev = useCallback(() => setIndex((i) => (i > 0 ? i - 1 : i)), [])
-  const goNext = useCallback(() => setIndex((i) => (i < ids.length - 1 ? i + 1 : i)), [ids.length])
+  const goPrev = useCallback(() => { setIndex((i) => (i > 0 ? i - 1 : i)); setInitialTab(undefined) }, [])
+  const goNext = useCallback(() => { setIndex((i) => (i < ids.length - 1 ? i + 1 : i)); setInitialTab(undefined) }, [ids.length])
 
   // Keyboard: ESC closes, ←/→ navigate.
   useEffect(() => {
@@ -132,7 +134,7 @@ export default function ReviewModalProvider({ children }: { children: React.Reac
                   </div>
                 </div>
               )}
-              {data && currentId && <NominationReview key={currentId} data={data} layout="modal" />}
+              {data && currentId && <NominationReview key={currentId} data={data} layout="modal" initialTab={initialTab} />}
             </div>
           </div>
         </div>

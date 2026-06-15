@@ -129,15 +129,24 @@ export default function AssignmentsTable({ rows }: { rows: Row[] }) {
       {
         accessorKey: 'score',
         header: 'Score',
-        cell: ({ row }) =>
-          row.original.score !== null ? (
-            <span className="font-semibold tabular-nums text-foreground">
-              {row.original.score.toFixed(1)}{' '}
-              <span className="font-normal text-muted-foreground text-xs">/ 100</span>
-            </span>
-          ) : (
-            <span className="text-muted-foreground">—</span>
-          ),
+        cell: ({ row }) => (
+          <button
+            className="text-left outline-none"
+            onClick={(e) => {
+              e.stopPropagation()
+              open(filteredRows.map((r) => r.nomination_id), row.original.nomination_id, 'evaluation')
+            }}
+          >
+            {row.original.score !== null ? (
+              <span className="font-semibold tabular-nums text-foreground hover:text-primary transition-colors">
+                {row.original.score.toFixed(1)}{' '}
+                <span className="font-normal text-muted-foreground text-xs">/ 10</span>
+              </span>
+            ) : (
+              <span className="text-muted-foreground hover:text-primary transition-colors">—</span>
+            )}
+          </button>
+        ),
         size: 96,
       },
       {

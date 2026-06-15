@@ -1,7 +1,8 @@
-const SECTION_ORDER = ['Basic', 'Round 1', 'Round 2', 'Round 3']
+const SECTION_ORDER = ['Basic', 'Round 1', 'Round 2']
+const HIDDEN_SECTIONS = new Set(['Round 3'])
 
 function orderedSections(rawData: Record<string, Record<string, string>>) {
-  const keys = Object.keys(rawData)
+  const keys = Object.keys(rawData).filter(k => !HIDDEN_SECTIONS.has(k))
   return [
     ...SECTION_ORDER.filter(k => keys.includes(k)),
     ...keys.filter(k => !SECTION_ORDER.includes(k)),

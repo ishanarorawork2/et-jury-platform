@@ -88,9 +88,11 @@ function MetaPanel({ data }: { data: ReviewData }) {
 export default function NominationReview({
   data,
   layout = 'modal',
+  initialTab,
 }: {
   data: ReviewData
   layout?: 'page' | 'modal'
+  initialTab?: string
 }) {
   const { nomination: n } = data
 
@@ -125,6 +127,7 @@ export default function NominationReview({
               role={data.role}
               rubric={data.rubric}
               existingScore={data.existingScore}
+              initialTab={initialTab}
             />
           </div>
         </div>
@@ -147,6 +150,7 @@ export default function NominationReview({
         role={data.role}
         rubric={data.rubric}
         existingScore={data.existingScore}
+        initialTab={initialTab}
       />
     </div>
   )
