@@ -200,7 +200,7 @@ export default function NominationsBrowser({
     if (slot) {
       if (slot.status === 'scored') {
         return (
-          <span className="inline-flex items-center gap-1.5">
+          <span className="inline-flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
             <span className="text-sm font-medium text-success">
               {slot.jury_users?.name ?? slot.juror_id}
             </span>
@@ -220,7 +220,7 @@ export default function NominationsBrowser({
         ...eligibleJurors(row.id, row.company).map((j) => ({ value: j.id, label: j.name })),
       ]
       return (
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
           <Select
             size="sm"
             aria-label="Reassign juror"
@@ -246,7 +246,7 @@ export default function NominationsBrowser({
       return <span className="text-xs text-muted-foreground">No eligible jurors</span>
     }
     return (
-      <div className="flex items-center gap-1.5">
+      <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
         <Select
           size="sm"
           aria-label="Assign juror"
