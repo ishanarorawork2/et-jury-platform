@@ -193,6 +193,11 @@ export default function NominationsBrowser({
   }, [shortlisted, jurors])
   const maxLoad = Math.max(1, ...jurorLoad.map((j) => j.count))
 
+  const jurorName = useCallback(
+    (jurorId: string) => jurors.find((j) => j.id === jurorId)?.name ?? jurorId,
+    [jurors]
+  )
+
   function renderSlot(row: RowT, slotIdx: number) {
     if (!row.has_summary) return <span className="text-xs text-muted-foreground">—</span>
 
@@ -202,7 +207,7 @@ export default function NominationsBrowser({
         return (
           <span className="inline-flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
             <span className="text-sm font-medium text-success">
-              {slot.jury_users?.name ?? slot.juror_id}
+              {jurorName(slot.juror_id)}
             </span>
             <Check className="size-3.5 text-success" />
             <button
@@ -216,7 +221,7 @@ export default function NominationsBrowser({
         )
       }
       const swapOptions = [
-        { value: slot.juror_id, label: slot.jury_users?.name ?? slot.juror_id },
+        { value: slot.juror_id, label: jurorName(slot.juror_id) },
         ...eligibleJurors(row.id, row.company).map((j) => ({ value: j.id, label: j.name })),
       ]
       return (

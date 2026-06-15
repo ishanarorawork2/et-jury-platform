@@ -42,7 +42,9 @@ function Select({
           className
         )}
       >
-        <SelectPrimitive.Value placeholder={placeholder} className="truncate" />
+        <SelectPrimitive.Value placeholder={placeholder} className="truncate">
+          {value ? (options.find((o) => o.value === value)?.label ?? value) : undefined}
+        </SelectPrimitive.Value>
         <SelectPrimitive.Icon className="shrink-0 text-muted-foreground">
           <ChevronsUpDown className="size-3.5" />
         </SelectPrimitive.Icon>
