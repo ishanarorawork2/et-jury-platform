@@ -6,6 +6,7 @@ import {
   Activity,
   Trophy,
   Upload,
+  ClipboardList,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -40,6 +41,7 @@ export const ADMIN_NAV: NavGroup[] = [
       { href: '/admin/jurors', label: 'Jurors', icon: Users, keywords: ['panel', 'judges', 'conflicts'] },
       { href: '/admin/assignments', label: 'Assignments', icon: GitMerge, keywords: ['assign', 'workload', 'coverage'] },
       { href: '/admin/progress', label: 'Progress', icon: Activity, keywords: ['dashboard', 'status', 'completion'] },
+      { href: '/admin/jury-view', label: 'Jury: My Assignments', icon: ClipboardList, keywords: ['juror view', 'juror dashboard', 'assignments preview'] },
     ],
   },
   {
@@ -64,6 +66,7 @@ const flatLabels: Record<string, string> = {
   '/admin/progress': 'Progress',
   '/admin/results': 'Results',
   '/admin/import': 'Import',
+  '/admin/jury-view': 'Jury: My Assignments',
   '/nominations': 'Nomination',
   '/admin': 'Admin',
 }

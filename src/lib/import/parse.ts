@@ -10,6 +10,15 @@ const META_COLS = new Set([
   'National Payment Id', 'National Payment Status', 'National Payment Date',
 ])
 
+// Try multiple column name aliases; return the first non-empty value
+function pickCell(row: Record<string, unknown>, ...keys: string[]): string {
+  for (const key of keys) {
+    const v = cleanCell(row[key])
+    if (v) return v
+  }
+  return ''
+}
+
 // Map a header to { group, question } for raw_data_json grouping
 function classifyHeader(header: string): { group: string; question: string } | null {
   // Round -1 is used in some sheets as the first round
@@ -166,9 +175,9 @@ export function parseAuditedFile(buffer: Buffer): AuditedRow[] {
         company: cleanCell(row['Company']),
         total_score: isNaN(totalScore) ? 0 : totalScore,
         qualifies,
-        summary: cleanCell(row['Summary / Answer']),
-        jury_notes: cleanCell(row['Jury Notes']),
-        strategic_feedback: cleanCell(row['Strategic Feedback']),
+        summary: pickCell(row, 'Summary / Answer', 'Refined Summary'),
+        jury_notes: pickCell(row, 'Jury Notes', 'Refined Jury Notes'),
+        strategic_feedback: pickCell(row, 'Strategic Feedback', 'Strengths & Achievement Points'),
         criteria_scores_json: extractCriteriaScores(row),
       })
     }
@@ -186,6 +195,7 @@ const COMBINED_EXTRA_META = new Set([
   'Master_Score: People', 'Master_Score: Process', 'Master_Score: Technology',
   'Master_Total Score', 'Master_Qualifies',
   'Master_Summary / Answer', 'Master_Jury Notes', 'Master_Strategic Feedback',
+  'Refined Summary', 'Refined Jury Notes', 'Strengths & Achievement Points',
 ])
 
 function buildCombinedRawDataJson(
@@ -283,9 +293,9 @@ export function parseCombinedCsv(buffer: Buffer): CombinedRow[] {
         raw_data_json: buildCombinedRawDataJson(row, headers),
         total_score: isNaN(totalScore) ? 0 : totalScore,
         qualifies: qualifiesRaw === 'YES',
-        summary: cleanCell(row['Master_Summary / Answer']),
-        jury_notes: cleanCell(row['Master_Jury Notes']),
-        strategic_feedback: cleanCell(row['Master_Strategic Feedback']),
+        summary: pickCell(row, 'Master_Summary / Answer', 'Refined Summary'),
+        jury_notes: pickCell(row, 'Master_Jury Notes', 'Refined Jury Notes'),
+        strategic_feedback: pickCell(row, 'Master_Strategic Feedback', 'Strengths & Achievement Points'),
         criteria_scores_json: hasCriteria ? criteriaScores : null,
       })
     }
