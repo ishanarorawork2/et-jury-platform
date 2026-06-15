@@ -128,6 +128,7 @@ export default function NominationReview({
               rubric={data.rubric}
               existingScore={data.existingScore}
               initialTab={initialTab}
+              company={n.company}
             />
           </div>
         </div>
@@ -151,6 +152,7 @@ export default function NominationReview({
         rubric={data.rubric}
         existingScore={data.existingScore}
         initialTab={initialTab}
+        company={n.company}
       />
     </div>
   )

@@ -27,6 +27,7 @@ type Props = {
   rubric: Criterion[]
   existingScore: SubmittedScore
   initialTab?: string
+  company?: string
 }
 
 export default function NominationTabs({
@@ -37,6 +38,7 @@ export default function NominationTabs({
   rubric,
   existingScore,
   initialTab,
+  company,
 }: Props) {
   const [activeTab, setActiveTab] = useState(initialTab ?? 'summary')
 
@@ -62,7 +64,7 @@ export default function NominationTabs({
           <EditorialSummaryView summary={summary} />
         </TabsPanel>
         <TabsPanel value="nomination">
-          <RawDataView rawData={rawData} />
+          <RawDataView rawData={rawData} company={company} />
         </TabsPanel>
         <TabsPanel value="evaluation">
           {role === 'juror' ? (

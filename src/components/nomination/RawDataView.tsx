@@ -1,6 +1,14 @@
 const SECTION_ORDER = ['Basic', 'Round 1', 'Round 2']
 const HIDDEN_SECTIONS = new Set(['Round 3'])
 
+// Field keys containing any of these strings (case-insensitive) are hidden from jurors.
+const HIDDEN_FIELD_PATTERNS = ['employee size', 'organisational revenue', 'organizational revenue']
+
+function isHiddenField(key: string) {
+  const lower = key.toLowerCase()
+  return HIDDEN_FIELD_PATTERNS.some(p => lower.includes(p))
+}
+
 function orderedSections(rawData: Record<string, Record<string, string>>) {
   const keys = Object.keys(rawData).filter(k => !HIDDEN_SECTIONS.has(k))
   return [
@@ -9,13 +17,23 @@ function orderedSections(rawData: Record<string, Record<string, string>>) {
   ]
 }
 
-export default function RawDataView({ rawData }: { rawData: Record<string, Record<string, string>> }) {
+type Props = {
+  rawData: Record<string, Record<string, string>>
+  company?: string
+}
+
+export default function RawDataView({ rawData, company }: Props) {
   const sections = orderedSections(rawData)
 
   return (
     <div className="space-y-8">
       {sections.map(section => {
-        const entries = Object.entries(rawData[section] ?? {})
+        const raw = Object.entries(rawData[section] ?? {}).filter(([q]) => !isHiddenField(q))
+        // Prepend Organisation Name to the Basic section if provided.
+        const entries: [string, string][] =
+          section === 'Basic' && company
+            ? [['Organisation Name', company], ...raw.filter(([q]) => q !== 'Organisation Name')]
+            : raw
         if (!entries.length) return null
         return (
           <div key={section}>
