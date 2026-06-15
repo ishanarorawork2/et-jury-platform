@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { CheckCircle2, FileSpreadsheet, Sparkles, Lock, RotateCcw } from 'lucide-react'
+import { CheckCircle2, FileSpreadsheet, Sparkles, Lock, RotateCcw, Layers } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { PageHeader } from '@/components/ui/page-header'
 import { Badge } from '@/components/ui/badge'
@@ -35,6 +35,173 @@ function ErrorBox({ msg }: { msg: string | null }) {
   return (
     <div className="rounded-lg border border-danger-border bg-danger-subtle p-3 text-sm text-danger">
       {msg}
+    </div>
+  )
+}
+
+// ── Combined CSV upload (alternative to two-step flow) ───────────────────────
+
+type CombinedParseResp = {
+  total: number
+  valid: number
+  skipped: number
+  skipped_labels: string[]
+  by_category: Array<{ key: string; master_category: string; count: number; scored: number }>
+}
+type CombinedCommitResp = {
+  nominations_inserted: number
+  summaries_inserted: number
+  locked_dropped: number
+  skipped: number
+  skipped_labels: string[]
+  errors: string[]
+}
+
+function CombinedStep({ onDone }: { onDone: () => void }) {
+  const confirm = useConfirm()
+  const fileRef = useRef<HTMLInputElement>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [preview, setPreview] = useState<CombinedParseResp | null>(null)
+  const [result, setResult] = useState<CombinedCommitResp | null>(null)
+
+  async function analyze() {
+    const file = fileRef.current?.files?.[0]
+    if (!file) { setError('Select a combined CSV / Excel file first.'); return }
+    setLoading(true); setError(null); setResult(null)
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      fd.append('mode', 'parse')
+      const res = await fetch('/api/admin/import/combined', { method: 'POST', body: fd })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error ?? 'Parse failed')
+      setPreview(json)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally { setLoading(false) }
+  }
+
+  async function commit() {
+    const file = fileRef.current?.files?.[0]
+    if (!file || !preview) return
+    const ok = await confirm({
+      title: `Import ${preview.valid} rows?`,
+      description: 'Nominations and AI scores will be written together. Rows where scoring has already started are protected.',
+      confirmLabel: 'Import',
+    })
+    if (!ok) return
+    setLoading(true); setError(null)
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      fd.append('mode', 'commit')
+      const res = await fetch('/api/admin/import/combined', { method: 'POST', body: fd })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error ?? 'Import failed')
+      setResult(json)
+      toast.success('Combined import complete', {
+        description: `${json.nominations_inserted} nominations · ${json.summaries_inserted} AI summaries written.`,
+      })
+      onDone()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+      toast.error('Import failed', { description: e instanceof Error ? e.message : String(e) })
+    } finally { setLoading(false) }
+  }
+
+  return (
+    <div className="card-surface space-y-5 p-6">
+      <div>
+        <h2 className="flex items-center gap-2 text-base font-semibold text-foreground">
+          <Layers className="size-4 text-primary" />
+          Combined CSV
+        </h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Upload a single CSV that contains both nomination answers and AI audit scores. Each row is
+          matched directly by <span className="font-mono text-xs">Nomination Id</span> — no fuzzy
+          join or separate reconciliation needed.
+        </p>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-3">
+        <input
+          ref={fileRef}
+          type="file"
+          accept=".csv,.xlsx"
+          className="text-sm text-muted-foreground file:mr-3 file:rounded-lg file:border file:border-border file:bg-muted file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-foreground hover:file:bg-muted/70"
+        />
+        <Button onClick={analyze} disabled={loading}>
+          {loading && !preview ? 'Analyzing…' : 'Analyze'}
+        </Button>
+      </div>
+
+      <ErrorBox msg={error} />
+
+      {preview && !result && (
+        <div className="space-y-4">
+          <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
+            <span><strong className="text-foreground">{preview.total}</strong> total rows</span>
+            <span><strong className="text-foreground">{preview.valid}</strong> will be imported</span>
+            {preview.skipped > 0 && (
+              <span className="text-warning">
+                <strong>{preview.skipped}</strong> skipped (unknown category
+                {preview.skipped_labels.length > 0 && `: "${preview.skipped_labels.join('", "')}"`})
+              </span>
+            )}
+          </div>
+
+          {preview.by_category.length > 0 && (
+            <div className="overflow-x-auto rounded-xl border border-border">
+              <table className="min-w-full text-sm">
+                <thead className="bg-muted/60 text-xs font-medium uppercase text-muted-foreground">
+                  <tr>
+                    <th className="px-4 py-2.5 text-left">Master category</th>
+                    <th className="px-4 py-2.5 text-left">Category key</th>
+                    <th className="px-4 py-2.5 text-right">Rows</th>
+                    <th className="px-4 py-2.5 text-right">With AI score</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {preview.by_category.map((c) => (
+                    <tr key={c.key}>
+                      <td className="px-4 py-2 text-foreground">{c.master_category}</td>
+                      <td className="px-4 py-2 font-mono text-xs text-muted-foreground">{c.key}</td>
+                      <td className="px-4 py-2 text-right tabular-nums text-muted-foreground">{c.count}</td>
+                      <td className="px-4 py-2 text-right tabular-nums text-muted-foreground">{c.scored}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <Button onClick={commit} disabled={loading || preview.valid === 0}>
+            {loading ? 'Importing…' : `Import ${preview.valid} rows`}
+          </Button>
+        </div>
+      )}
+
+      {result && (
+        <div className="flex items-start gap-2.5 rounded-lg border border-success-border bg-success-subtle p-4 text-sm text-success">
+          <CheckCircle2 className="mt-0.5 size-4 shrink-0" />
+          <div>
+            <strong>{result.nominations_inserted} nominations</strong> and{' '}
+            <strong>{result.summaries_inserted} AI summaries</strong> written.
+            {result.locked_dropped > 0 && (
+              <span className="ml-1 text-warning">{result.locked_dropped} summaries skipped (scoring in progress).</span>
+            )}
+            {result.skipped > 0 && (
+              <span className="ml-1 text-muted-foreground">{result.skipped} rows skipped (unknown category).</span>
+            )}
+            {result.errors.length > 0 && (
+              <ul className="mt-2 list-disc pl-5 text-danger">
+                {result.errors.map((e, i) => <li key={i}>{e}</li>)}
+              </ul>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -698,6 +865,17 @@ export default function ImportPage() {
         title="Import"
         description="Import raw nominations and map their categories, then upload editorial summaries and match them."
       />
+
+      {/* Combined CSV — single-file alternative to the two-step flow below */}
+      <CombinedStep onDone={() => { setRawDone(true); setEditorialDone(true) }} />
+
+      <div className="relative">
+        <div className="absolute inset-x-0 top-1/2 border-t border-border" />
+        <div className="relative flex justify-center">
+          <span className="bg-background px-3 text-xs text-muted-foreground">or use the two-step flow</span>
+        </div>
+      </div>
+
       <div className="card-surface px-6 py-4">
         <Stepper steps={STEPS} states={states} />
       </div>

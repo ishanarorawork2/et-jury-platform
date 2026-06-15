@@ -105,7 +105,7 @@ export function parseRawFile(buffer: Buffer): RawNomination[] {
 // ── Audited list files ────────────────────────────────────────────────────────
 
 const CRITERIA_PREFIX = 'Score: '
-const CRITERIA_KEYS = [
+export const CRITERIA_KEYS = [
   'People', 'Process', 'Technology', 'Community Impact', 'Legacy',
   'Major Initiative', 'Commitment & Structure', 'Domain Criticality',
   'Maturity', 'Frameworks & Standards / Compliance', 'Governance / Ownership',
@@ -170,6 +170,123 @@ export function parseAuditedFile(buffer: Buffer): AuditedRow[] {
         jury_notes: cleanCell(row['Jury Notes']),
         strategic_feedback: cleanCell(row['Strategic Feedback']),
         criteria_scores_json: extractCriteriaScores(row),
+      })
+    }
+  }
+
+  return results
+}
+
+// ── Combined CSV (raw + AI scores in one file) ────────────────────────────────
+
+// Columns in the combined CSV that are meta / not Q&A payload.
+const COMBINED_EXTRA_META = new Set([
+  'Basic Added Date', 'Basic Status',
+  'Category',
+  'Master_Score: People', 'Master_Score: Process', 'Master_Score: Technology',
+  'Master_Total Score', 'Master_Qualifies',
+  'Master_Summary / Answer', 'Master_Jury Notes', 'Master_Strategic Feedback',
+])
+
+function buildCombinedRawDataJson(
+  row: Record<string, unknown>,
+  headers: string[],
+): RawDataJson {
+  const result: RawDataJson = {}
+  for (const header of headers) {
+    if (META_COLS.has(header)) continue
+    if (COMBINED_EXTRA_META.has(header)) continue
+    if (/^Master[_\s]/i.test(header)) continue
+    const classified = classifyHeader(header)
+    if (!classified) continue
+    const { group, question } = classified
+    const value = cleanCell(row[header])
+    if (!value) continue
+    if (!result[group]) result[group] = {}
+    if (!result[group][question]) result[group][question] = value
+  }
+  return result
+}
+
+export interface CombinedRow {
+  nomination_id: string
+  nominee_name: string
+  designation: string
+  company: string
+  email: string
+  mobile: string
+  /** Raw value of "Master Category Name" — resolved to normalized_key in the route. */
+  category_label: string
+  raw_data_json: RawDataJson
+  total_score: number
+  qualifies: boolean
+  summary: string
+  jury_notes: string
+  strategic_feedback: string
+  criteria_scores_json: Record<string, number> | null
+}
+
+export function parseCombinedCsv(buffer: Buffer): CombinedRow[] {
+  const wb = XLSX.read(buffer, { type: 'buffer', cellDates: false, raw: false })
+  const results: CombinedRow[] = []
+
+  for (const sheetName of wb.SheetNames) {
+    const ws = wb.Sheets[sheetName]
+    const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, {
+      defval: null,
+      raw: false,
+    })
+    if (rows.length === 0) continue
+    const headers = Object.keys(rows[0])
+
+    for (const row of rows) {
+      const nominationId = cleanId(row['Nomination Id'])
+      if (!nominationId) continue
+
+      const firstName = cleanCell(row['First Name'])
+      const lastName = cleanCell(row['Last Name'])
+      const nomineeName = [firstName, lastName].filter(Boolean).join(' ')
+      if (!nomineeName) continue
+
+      const rawScore = row['Master_Total Score']
+      const totalScore =
+        rawScore !== null && rawScore !== undefined && rawScore !== ''
+          ? parseFloat(String(rawScore))
+          : 0
+
+      const qualifiesRaw = cleanCell(row['Master_Qualifies']).toUpperCase()
+
+      const criteriaScores: Record<string, number> = {}
+      let hasCriteria = false
+      for (const key of CRITERIA_KEYS) {
+        const col = 'Master_Score: ' + key
+        const val = row[col]
+        if (val !== null && val !== undefined && val !== '') {
+          const n = parseFloat(String(val))
+          if (!isNaN(n)) {
+            criteriaScores[key] = n
+            hasCriteria = true
+          }
+        }
+      }
+
+      results.push({
+        nomination_id: nominationId,
+        nominee_name: nomineeName,
+        designation: cleanCell(row['Designation']),
+        company: cleanCell(row['Company']),
+        email: cleanCell(row['Email']),
+        mobile: cleanCell(row['Mobile']),
+        // Prefer the specific "Category" column (e.g. "ET CISO of the Year") over the
+        // coarser "Master Category Name" — the former maps directly to category_mapping.raw_label.
+        category_label: cleanCell(row['Category']) || cleanCell(row['Master Category Name']),
+        raw_data_json: buildCombinedRawDataJson(row, headers),
+        total_score: isNaN(totalScore) ? 0 : totalScore,
+        qualifies: qualifiesRaw === 'YES',
+        summary: cleanCell(row['Master_Summary / Answer']),
+        jury_notes: cleanCell(row['Master_Jury Notes']),
+        strategic_feedback: cleanCell(row['Master_Strategic Feedback']),
+        criteria_scores_json: hasCriteria ? criteriaScores : null,
       })
     }
   }
