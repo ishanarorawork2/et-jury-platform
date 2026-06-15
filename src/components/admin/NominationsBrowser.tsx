@@ -409,6 +409,8 @@ export default function NominationsBrowser({
           pageSize={50}
           savedViewsKey="admin-nominations"
           onRowClick={(row, orderedIds) => open(orderedIds, row.id)}
+          enableDensityToggle={false}
+          enableColumnVisibility={false}
         />
 
         {/* Juror load sidebar */}
