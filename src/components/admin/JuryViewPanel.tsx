@@ -17,6 +17,7 @@ type Row = {
   nominee_name: string
   designation: string
   company: string
+  company_size: string | null
   master_category: string
   category_key: string
   score: number | null

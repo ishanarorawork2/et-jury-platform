@@ -24,7 +24,7 @@ export default async function NominationDetailPage({ params }: { params: Params 
 
   const { data: nomination } = await supabase
     .from('nominations')
-    .select('id, nomination_id, nominee_name, company, designation, master_category, category_key, raw_data_json')
+    .select('id, nomination_id, nominee_name, company, company_size, designation, master_category, category_key, raw_data_json')
     .eq('id', id)
     .single()
 

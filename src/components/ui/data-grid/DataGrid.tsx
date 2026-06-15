@@ -83,6 +83,15 @@ export function DataGrid<T>({
     setHydrated(true)
   }, [savedViewsKey])
 
+  // Drop any sort entries for columns that no longer exist in the current column set.
+  const resolvedColumnIds = useMemo(
+    () => new Set(columns.map((c) => ('accessorKey' in c ? String(c.accessorKey) : c.id ?? ''))),
+    [columns]
+  )
+  useEffect(() => {
+    setSorting((prev) => prev.filter((s) => resolvedColumnIds.has(s.id)))
+  }, [resolvedColumnIds])
+
   // Persist saved view.
   useEffect(() => {
     if (!savedViewsKey || !hydrated) return

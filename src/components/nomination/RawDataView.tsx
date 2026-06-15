@@ -17,23 +17,31 @@ function orderedSections(rawData: Record<string, Record<string, string>>) {
   ]
 }
 
+const COMPANY_SIZE_CATEGORIES = new Set(['et_ciso', 'et_rising_star'])
+
 type Props = {
   rawData: Record<string, Record<string, string>>
   company?: string
+  companySize?: string | null
+  categoryKey?: string
 }
 
-export default function RawDataView({ rawData, company }: Props) {
+export default function RawDataView({ rawData, company, companySize, categoryKey }: Props) {
   const sections = orderedSections(rawData)
+  const showCompanySize = !!categoryKey && COMPANY_SIZE_CATEGORIES.has(categoryKey)
 
   return (
     <div className="space-y-8">
       {sections.map(section => {
         const raw = Object.entries(rawData[section] ?? {}).filter(([q]) => !isHiddenField(q))
-        // Prepend Organisation Name to the Basic section if provided.
-        const entries: [string, string][] =
+        // Prepend Organisation Name to Basic; also inject Company Size for CISO/Rising Star.
+        let entries: [string, string][] =
           section === 'Basic' && company
             ? [['Organisation Name', company], ...raw.filter(([q]) => q !== 'Organisation Name')]
             : raw
+        if (section === 'Basic' && showCompanySize && companySize && companySize !== 'Not Defined') {
+          entries = [...entries, ['Company Size', companySize]]
+        }
         if (!entries.length) return null
         return (
           <div key={section}>

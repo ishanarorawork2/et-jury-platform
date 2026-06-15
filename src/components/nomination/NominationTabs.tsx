@@ -28,6 +28,8 @@ type Props = {
   existingScore: SubmittedScore
   initialTab?: string
   company?: string
+  companySize?: string | null
+  categoryKey?: string
 }
 
 export default function NominationTabs({
@@ -39,6 +41,8 @@ export default function NominationTabs({
   existingScore,
   initialTab,
   company,
+  companySize,
+  categoryKey,
 }: Props) {
   const [activeTab, setActiveTab] = useState(initialTab ?? 'summary')
 
@@ -64,7 +68,7 @@ export default function NominationTabs({
           <EditorialSummaryView summary={summary} />
         </TabsPanel>
         <TabsPanel value="nomination">
-          <RawDataView rawData={rawData} company={company} />
+          <RawDataView rawData={rawData} company={company} companySize={companySize} categoryKey={categoryKey} />
         </TabsPanel>
         <TabsPanel value="evaluation">
           {role === 'juror' ? (

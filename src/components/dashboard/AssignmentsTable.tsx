@@ -21,6 +21,7 @@ type Row = {
   nominee_name: string
   designation: string
   company: string
+  company_size: string | null
   master_category: string
   category_key: string
   score: number | null
@@ -97,6 +98,16 @@ export default function AssignmentsTable({ rows }: { rows: Row[] }) {
         ),
         size: 180,
       },
+      ...(['et_ciso', 'et_rising_star'].includes(subCategoryFilter) ? [{
+        accessorKey: 'company_size' as const,
+        header: 'Company Size',
+        cell: ({ row }: { row: { original: Row } }) => {
+          const size = row.original.company_size
+          if (!size || size === 'Not Defined') return <span className="text-muted-foreground text-sm">—</span>
+          return <span className="text-sm text-muted-foreground">{size}</span>
+        },
+        size: 160,
+      }] : []),
       {
         id: 'summary',
         header: 'Executive Summary',
@@ -174,7 +185,7 @@ export default function AssignmentsTable({ rows }: { rows: Row[] }) {
         size: 48,
       },
     ],
-    [filteredRows, open]
+    [filteredRows, open, subCategoryFilter]
   )
 
   if (rows.length === 0) {
@@ -249,7 +260,7 @@ export default function AssignmentsTable({ rows }: { rows: Row[] }) {
         filters={[statusFilter]}
         toolbarStart={categorySelects}
         pageSize={25}
-        savedViewsKey="juror-assignments-v4"
+        savedViewsKey="juror-assignments-v5"
         enableDensityToggle={false}
         enableColumnVisibility={false}
         onRowClick={(row, orderedIds) => open(orderedIds, row.nomination_id)}

@@ -11,6 +11,7 @@ type AssignmentRow = {
   nominee_name: string
   designation: string
   company: string
+  company_size: string | null
   master_category: string
   category_key: string
   score: number | null
@@ -59,7 +60,7 @@ export default async function JuryViewPage({ searchParams }: PageProps) {
         .select(`
           id,
           nominations (
-            id, nomination_id, nominee_name, designation, company, master_category, category_key,
+            id, nomination_id, nominee_name, designation, company, company_size, master_category, category_key,
             editorial_summary ( summary )
           )
         `)
@@ -82,6 +83,7 @@ export default async function JuryViewPage({ searchParams }: PageProps) {
         nominee_name?: string
         designation?: string
         company?: string
+        company_size?: string | null
         master_category?: string
         category_key?: string
         editorial_summary?: { summary?: string | null } | { summary?: string | null }[] | null
@@ -98,6 +100,7 @@ export default async function JuryViewPage({ searchParams }: PageProps) {
         nominee_name: nom?.nominee_name ?? '',
         designation: nom?.designation ?? '',
         company: nom?.company ?? '',
+        company_size: nom?.company_size ?? null,
         master_category: nom?.master_category ?? '',
         category_key: nom?.category_key ?? '',
         score: scoreMap.get(nomId) ?? null,

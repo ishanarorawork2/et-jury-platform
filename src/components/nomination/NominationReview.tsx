@@ -22,6 +22,7 @@ export type ReviewData = {
     nomination_id: string
     nominee_name: string
     company: string
+    company_size: string | null
     designation: string | null
     master_category: string
     category_key: string
@@ -129,6 +130,8 @@ export default function NominationReview({
               existingScore={data.existingScore}
               initialTab={initialTab}
               company={n.company}
+              companySize={n.company_size}
+              categoryKey={n.category_key}
             />
           </div>
         </div>
@@ -153,6 +156,8 @@ export default function NominationReview({
         existingScore={data.existingScore}
         initialTab={initialTab}
         company={n.company}
+        companySize={n.company_size}
+        categoryKey={n.category_key}
       />
     </div>
   )
