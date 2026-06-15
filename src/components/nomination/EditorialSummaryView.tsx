@@ -72,8 +72,8 @@ export default function EditorialSummaryView({ summary }: { summary: EditorialSu
 
       {[
         { label: 'Summary', value: summaryText },
-        { label: 'Editorial Notes', value: jury_notes },
-        { label: 'Strategic Feedback', value: strategic_feedback },
+        { label: 'Jury Notes', value: jury_notes },
+        { label: 'Strengths & Weakness', value: strategic_feedback },
       ]
         .filter(({ value }) => value)
         .map(({ label, value }) => (

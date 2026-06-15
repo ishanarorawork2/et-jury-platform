@@ -45,7 +45,7 @@ export default function NominationTabs({
       <TabsList>
         <TabsTab value="summary">
           <Sparkles className="size-4" />
-          Editorial Summary
+          Jury Notes
         </TabsTab>
         <TabsTab value="nomination">
           <FileText className="size-4" />
