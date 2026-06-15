@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
   const admin = await requireAdmin()
   if (!admin) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { master_category, juror_ids } = await req.json()
+  const { master_category, category_key, juror_ids } = await req.json()
   if (!master_category || !Array.isArray(juror_ids) || juror_ids.length < 2) {
     return NextResponse.json(
       { error: 'master_category and at least 2 juror_ids are required' },
@@ -31,12 +31,15 @@ export async function POST(req: NextRequest) {
 
   const service = createServiceClient()
 
+  let nomQuery = service
+    .from('nominations')
+    // Only nominations with a matched editorial summary are eligible for assignment.
+    .select('id, company, editorial_summary!inner(id), assignments(juror_id)')
+    .eq('master_category', master_category)
+  if (category_key) nomQuery = nomQuery.eq('category_key', category_key)
+
   const [{ data: nominations }, { data: allConflicts }] = await Promise.all([
-    service
-      .from('nominations')
-      // Only nominations with a matched editorial summary are eligible for assignment.
-      .select('id, company, editorial_summary!inner(id), assignments(juror_id)')
-      .eq('master_category', master_category),
+    nomQuery,
     service
       .from('conflicts')
       .select('juror_id, company')
@@ -44,7 +47,7 @@ export async function POST(req: NextRequest) {
   ])
 
   if (!nominations?.length) {
-    return NextResponse.json({ error: 'No nominations found for this category' }, { status: 404 })
+    return NextResponse.json({ error: 'No nominations found for the selected category/sub-category' }, { status: 404 })
   }
 
   // Build conflict map: juror_id → Set<company_lower>

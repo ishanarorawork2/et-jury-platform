@@ -44,6 +44,9 @@ export default function AdminAssignmentsPage() {
   const [loadingNoms, setLoadingNoms] = useState(false)
 
   const [autoCategory, setAutoCategory] = useState('')
+  const [autoSubCategory, setAutoSubCategory] = useState('')
+  const [autoSubCategories, setAutoSubCategories] = useState<string[]>([])
+  const [autoNominations, setAutoNominations] = useState<Nomination[]>([])
   const [autoJurors, setAutoJurors] = useState<string[]>([])
   const [autoRunning, setAutoRunning] = useState(false)
   const [autoResult, setAutoResult] = useState<{ assigned: number; skipped: number } | null>(null)
@@ -75,6 +78,23 @@ export default function AdminAssignmentsPage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     loadNominations(category)
   }, [category, loadNominations])
+
+  useEffect(() => {
+    setAutoSubCategory('')
+    if (!autoCategory) { setAutoSubCategories([]); setAutoNominations([]); return }
+    fetch(`/api/admin/assignments?category=${encodeURIComponent(autoCategory)}`)
+      .then((r) => r.json())
+      .then((data: Nomination[]) => {
+        const rows = Array.isArray(data) ? data : []
+        setAutoNominations(rows)
+        const keys = Array.from(new Set(rows.map((n) => n.category_key))).sort((a, b) =>
+          categoryLabel(a).localeCompare(categoryLabel(b))
+        )
+        setAutoSubCategories(keys)
+      })
+      .catch(() => { setAutoSubCategories([]); setAutoNominations([]) })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoCategory])
 
   const isConflicted = useCallback(
     (jurorId: string, company: string) =>
@@ -135,7 +155,7 @@ export default function AdminAssignmentsPage() {
     const res = await fetch('/api/admin/assignments/auto', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ master_category: autoCategory, juror_ids: autoJurors }),
+      body: JSON.stringify({ master_category: autoCategory, category_key: autoSubCategory || undefined, juror_ids: autoJurors }),
     })
     const data = await res.json()
     setAutoRunning(false)
@@ -149,6 +169,20 @@ export default function AdminAssignmentsPage() {
       toast.error('Auto-assign failed', { description: data.error })
     }
   }
+
+  const autoPendingCount = useMemo(() => {
+    const pool = autoSubCategory
+      ? autoNominations.filter((n) => n.category_key === autoSubCategory)
+      : autoNominations
+    return pool.filter((n) => n.assignments.length < 2).length
+  }, [autoNominations, autoSubCategory])
+
+  const autoOpenSlots = useMemo(() => {
+    const pool = autoSubCategory
+      ? autoNominations.filter((n) => n.category_key === autoSubCategory)
+      : autoNominations
+    return pool.reduce((acc, n) => acc + (2 - n.assignments.length), 0)
+  }, [autoNominations, autoSubCategory])
 
   const subCategories = useMemo(
     () =>
@@ -316,8 +350,8 @@ export default function AdminAssignmentsPage() {
           Auto-assign a category
         </h2>
         <p className="mb-4 mt-0.5 text-xs text-muted-foreground">
-          Distributes all unassigned slots in the chosen category across the selected jurors
-          (load-balanced, conflict-aware).
+          Distributes all unassigned slots in the chosen category (or sub-category) across the
+          selected jurors (load-balanced, conflict-aware).
         </p>
         <div className="flex flex-wrap items-end gap-4">
           <div>
@@ -331,6 +365,22 @@ export default function AdminAssignmentsPage() {
               className="w-64"
             />
           </div>
+          {autoCategory && autoSubCategories.length > 0 && (
+            <div>
+              <label className="mb-1 block text-xs text-muted-foreground">Sub-category</label>
+              <Select
+                aria-label="Auto-assign sub-category"
+                value={autoSubCategory}
+                onValueChange={setAutoSubCategory}
+                placeholder="All sub-categories"
+                options={[
+                  { value: '', label: 'All sub-categories' },
+                  ...autoSubCategories.map((k) => ({ value: k, label: categoryLabel(k) })),
+                ]}
+                className="w-56"
+              />
+            </div>
+          )}
           <div className="min-w-56 flex-1">
             <p className="mb-1 text-xs text-muted-foreground">
               Jurors to include ({autoJurors.length} selected)
@@ -360,9 +410,17 @@ export default function AdminAssignmentsPage() {
               })}
             </div>
           </div>
-          <Button onClick={handleAutoAssign} disabled={autoRunning || !autoCategory || autoJurors.length < 2}>
-            {autoRunning ? 'Running…' : 'Auto-assign'}
-          </Button>
+          <div className="flex flex-col items-start gap-1.5">
+            {autoCategory && autoNominations.length > 0 && (
+              <p className="text-xs text-muted-foreground">
+                <span className="font-semibold text-foreground">{autoPendingCount}</span> nomination{autoPendingCount !== 1 ? 's' : ''} need{autoPendingCount === 1 ? 's' : ''} filling
+                {' · '}<span className="font-semibold text-foreground">{autoOpenSlots}</span> open slot{autoOpenSlots !== 1 ? 's' : ''}
+              </p>
+            )}
+            <Button onClick={handleAutoAssign} disabled={autoRunning || !autoCategory || autoJurors.length < 2 || autoPendingCount === 0}>
+              {autoRunning ? 'Running…' : 'Auto-assign'}
+            </Button>
+          </div>
         </div>
         {autoResult && (
           <div className="mt-3 flex items-center gap-2 rounded-lg border border-info-border bg-info-subtle px-3 py-2 text-xs text-info">
