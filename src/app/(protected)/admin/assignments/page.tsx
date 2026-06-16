@@ -44,7 +44,7 @@ export default function AdminAssignmentsPage() {
   const [loadingNoms, setLoadingNoms] = useState(false)
 
   const [autoCategory, setAutoCategory] = useState('')
-  const [autoSubCategory, setAutoSubCategory] = useState('')
+  const [autoSelectedSubCats, setAutoSelectedSubCats] = useState<string[]>([])
   const [autoSubCategories, setAutoSubCategories] = useState<string[]>([])
   const [autoNominations, setAutoNominations] = useState<Nomination[]>([])
   const [autoJurors, setAutoJurors] = useState<string[]>([])
@@ -80,7 +80,7 @@ export default function AdminAssignmentsPage() {
   }, [category, loadNominations])
 
   useEffect(() => {
-    setAutoSubCategory('')
+    setAutoSelectedSubCats([])
     if (!autoCategory) { setAutoSubCategories([]); setAutoNominations([]); return }
     fetch(`/api/admin/assignments?category=${encodeURIComponent(autoCategory)}`)
       .then((r) => r.json())
@@ -149,13 +149,17 @@ export default function AdminAssignmentsPage() {
   }
 
   async function handleAutoAssign() {
-    if (!autoCategory || autoJurors.length < 2) return
+    if (!autoCategory || autoJurors.length < 1) return
     setAutoRunning(true)
     setAutoResult(null)
     const res = await fetch('/api/admin/assignments/auto', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ master_category: autoCategory, category_key: autoSubCategory || undefined, juror_ids: autoJurors }),
+      body: JSON.stringify({
+        master_category: autoCategory,
+        category_keys: autoSelectedSubCats.length > 0 ? autoSelectedSubCats : undefined,
+        juror_ids: autoJurors,
+      }),
     })
     const data = await res.json()
     setAutoRunning(false)
@@ -171,18 +175,18 @@ export default function AdminAssignmentsPage() {
   }
 
   const autoPendingCount = useMemo(() => {
-    const pool = autoSubCategory
-      ? autoNominations.filter((n) => n.category_key === autoSubCategory)
+    const pool = autoSelectedSubCats.length > 0
+      ? autoNominations.filter((n) => autoSelectedSubCats.includes(n.category_key))
       : autoNominations
     return pool.filter((n) => n.assignments.length < 2).length
-  }, [autoNominations, autoSubCategory])
+  }, [autoNominations, autoSelectedSubCats])
 
   const autoOpenSlots = useMemo(() => {
-    const pool = autoSubCategory
-      ? autoNominations.filter((n) => n.category_key === autoSubCategory)
+    const pool = autoSelectedSubCats.length > 0
+      ? autoNominations.filter((n) => autoSelectedSubCats.includes(n.category_key))
       : autoNominations
     return pool.reduce((acc, n) => acc + (2 - n.assignments.length), 0)
-  }, [autoNominations, autoSubCategory])
+  }, [autoNominations, autoSelectedSubCats])
 
   const subCategories = useMemo(
     () =>
@@ -366,19 +370,33 @@ export default function AdminAssignmentsPage() {
             />
           </div>
           {autoCategory && autoSubCategories.length > 0 && (
-            <div>
-              <label className="mb-1 block text-xs text-muted-foreground">Sub-category</label>
-              <Select
-                aria-label="Auto-assign sub-category"
-                value={autoSubCategory}
-                onValueChange={setAutoSubCategory}
-                placeholder="All sub-categories"
-                options={[
-                  { value: '', label: 'All sub-categories' },
-                  ...autoSubCategories.map((k) => ({ value: k, label: categoryLabel(k) })),
-                ]}
-                className="w-56"
-              />
+            <div className="min-w-56 flex-1">
+              <p className="mb-1 text-xs text-muted-foreground">
+                Sub-categories ({autoSelectedSubCats.length === 0 ? 'all' : autoSelectedSubCats.length} selected)
+              </p>
+              <div className="flex max-h-28 flex-wrap gap-1.5 overflow-y-auto rounded-lg border border-border p-2">
+                {autoSubCategories.map((k) => {
+                  const on = autoSelectedSubCats.includes(k)
+                  return (
+                    <button
+                      key={k}
+                      onClick={() =>
+                        setAutoSelectedSubCats((prev) =>
+                          on ? prev.filter((v) => v !== k) : [...prev, k]
+                        )
+                      }
+                      className={cn(
+                        'rounded-full border px-2.5 py-1 text-xs transition-colors',
+                        on
+                          ? 'border-primary bg-accent text-accent-foreground'
+                          : 'border-border text-muted-foreground hover:bg-muted'
+                      )}
+                    >
+                      {categoryLabel(k)}
+                    </button>
+                  )
+                })}
+              </div>
             </div>
           )}
           <div className="min-w-56 flex-1">
@@ -417,7 +435,7 @@ export default function AdminAssignmentsPage() {
                 {' · '}<span className="font-semibold text-foreground">{autoOpenSlots}</span> open slot{autoOpenSlots !== 1 ? 's' : ''}
               </p>
             )}
-            <Button onClick={handleAutoAssign} disabled={autoRunning || !autoCategory || autoJurors.length < 2 || autoPendingCount === 0}>
+            <Button onClick={handleAutoAssign} disabled={autoRunning || !autoCategory || autoJurors.length < 1 || autoPendingCount === 0}>
               {autoRunning ? 'Running…' : 'Auto-assign'}
             </Button>
           </div>

@@ -2,7 +2,10 @@ const SECTION_ORDER = ['Basic', 'Round 1', 'Round 2']
 const HIDDEN_SECTIONS = new Set(['Round 3'])
 
 // Field keys containing any of these strings (case-insensitive) are hidden from jurors.
-const HIDDEN_FIELD_PATTERNS = ['employee size', 'organisational revenue', 'organizational revenue']
+const HIDDEN_FIELD_PATTERNS = [
+  'employee size', 'organisational revenue', 'organizational revenue',
+  'email', 'mobile', 'phone', 'contact no', 'contact number',
+]
 
 function isHiddenField(key: string) {
   const lower = key.toLowerCase()

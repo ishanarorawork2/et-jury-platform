@@ -8,6 +8,7 @@ export type EditorialSummary = {
   jury_notes: string | null
   strategic_feedback: string | null
   criteria_scores_json: Record<string, number> | null
+  total_score: number | null
 } | null
 
 export default function EditorialSummaryView({ summary }: { summary: EditorialSummary }) {
@@ -19,16 +20,12 @@ export default function EditorialSummaryView({ summary }: { summary: EditorialSu
     )
   }
 
-  const { summary: summaryText, jury_notes, strategic_feedback, criteria_scores_json } = summary
+  const { summary: summaryText, jury_notes, strategic_feedback, criteria_scores_json, total_score } = summary
   const hasAny = summaryText || jury_notes || strategic_feedback
 
-  const CRITERIA = [
-    { key: 'People', label: 'People Score' },
-    { key: 'Process', label: 'Process Score' },
-    { key: 'Technology', label: 'Technology Score' },
-  ] as const
-
-  const criteriaRows = CRITERIA.filter(c => criteria_scores_json?.[c.key] != null)
+  const criteriaRows = criteria_scores_json
+    ? Object.entries(criteria_scores_json).filter(([, v]) => v != null && !isNaN(v))
+    : []
 
   if (!hasAny && criteriaRows.length === 0) {
     return (
@@ -45,30 +42,29 @@ export default function EditorialSummaryView({ summary }: { summary: EditorialSu
         evaluation is the sole basis for scoring.
       </p>
 
-      {criteriaRows.length > 0 && (() => {
-        const mean = Math.round(criteriaRows.reduce((sum, c) => sum + criteria_scores_json![c.key], 0) / criteriaRows.length)
-        return (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-xs uppercase tracking-wider text-muted-foreground">AI Dimension Scores</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="flex flex-wrap items-center gap-3">
-                {criteriaRows.map(c => (
-                  <div key={c.key} className="flex items-center gap-1.5 rounded-full border border-border bg-muted/50 px-3 py-1.5">
-                    <span className="text-xs text-muted-foreground">{c.label.replace(' Score', '')}</span>
-                    <span className="text-sm font-semibold tabular-nums text-foreground">{criteria_scores_json![c.key]}</span>
-                  </div>
-                ))}
+      {criteriaRows.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-xs uppercase tracking-wider text-muted-foreground">AI Dimension Scores</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-wrap items-center gap-3">
+              {criteriaRows.map(([key, val]) => (
+                <div key={key} className="flex items-center gap-1.5 rounded-full border border-border bg-muted/50 px-3 py-1.5">
+                  <span className="text-xs text-muted-foreground">{key}</span>
+                  <span className="text-sm font-semibold tabular-nums text-foreground">{val}</span>
+                </div>
+              ))}
+              {total_score != null && !isNaN(total_score) && (
                 <div className="ml-auto flex items-center gap-2 rounded-full border border-border bg-muted/50 px-5 py-2">
                   <span className="text-sm text-muted-foreground">Total</span>
-                  <span className="text-2xl font-bold tabular-nums text-foreground">{mean}</span>
+                  <span className="text-2xl font-bold tabular-nums text-foreground">{total_score}</span>
                 </div>
-              </div>
-            </CardContent>
-          </Card>
-        )
-      })()}
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {[
         { label: 'Summary', value: summaryText },

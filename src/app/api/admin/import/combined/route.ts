@@ -85,11 +85,20 @@ export async function POST(req: NextRequest) {
     // mode === 'commit'
     const service = createServiceClient()
 
+    // Deduplicate by nomination_id — keep last occurrence (later rows win).
+    const deduped = new Map<string, { row: typeof valid[0]; res: Resolved }>()
+    for (let i = 0; i < valid.length; i++) {
+      deduped.set(valid[i].nomination_id, { row: valid[i], res: validResolved[i] })
+    }
+    const dedupedRows = [...deduped.values()]
+    const dedupedValid = dedupedRows.map((d) => d.row)
+    const dedupedResolved = dedupedRows.map((d) => d.res)
+
     // 1. Upsert nominations.
-    const nominationRows = valid.map((r, i) => ({
+    const nominationRows = dedupedValid.map((r, i) => ({
       nomination_id: r.nomination_id,
-      category_key: validResolved[i].normalized_key,
-      master_category: validResolved[i].master_category,
+      category_key: dedupedResolved[i].normalized_key,
+      master_category: dedupedResolved[i].master_category,
       nominee_name: r.nominee_name,
       designation: r.designation || null,
       company: r.company,
@@ -119,7 +128,7 @@ export async function POST(req: NextRequest) {
     }
 
     // 2. Fetch UUIDs by nomination_id string so we can write editorial_summary.
-    const nomIds = valid.map((r) => r.nomination_id)
+    const nomIds = dedupedValid.map((r) => r.nomination_id)
     const { data: stored, error: fetchErr } = await service
       .from('nominations')
       .select('id, nomination_id')
@@ -137,7 +146,7 @@ export async function POST(req: NextRequest) {
     const scoredIds = new Set((scored ?? []).map((s) => s.nomination_id as string))
 
     // 4. Build and upsert editorial_summary rows.
-    const summaryRows = valid
+    const summaryRows = dedupedValid
       .map((r, i) => {
         const uuid = uuidByNomId.get(r.nomination_id)
         if (!uuid) return null
@@ -154,7 +163,7 @@ export async function POST(req: NextRequest) {
       })
       .filter((x): x is NonNullable<typeof x> => x !== null)
 
-    const lockedDropped = valid.length - summaryRows.length - (valid.length - uuids.length)
+    const lockedDropped = dedupedValid.length - summaryRows.length - (dedupedValid.length - uuids.length)
     let summariesInserted = 0
 
     for (let i = 0; i < summaryRows.length; i += BATCH) {

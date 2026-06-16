@@ -32,7 +32,7 @@ export default async function NominationDetailPage({ params }: { params: Params 
 
   const { data: summary } = await supabase
     .from('editorial_summary')
-    .select('summary, jury_notes, strategic_feedback, criteria_scores_json')
+    .select('summary, jury_notes, strategic_feedback, criteria_scores_json, total_score')
     .eq('nomination_id', id)
     .maybeSingle()
 

@@ -21,10 +21,10 @@ export async function POST(req: NextRequest) {
   const admin = await requireAdmin()
   if (!admin) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { master_category, category_key, juror_ids } = await req.json()
-  if (!master_category || !Array.isArray(juror_ids) || juror_ids.length < 2) {
+  const { master_category, category_keys, juror_ids } = await req.json()
+  if (!master_category || !Array.isArray(juror_ids) || juror_ids.length < 1) {
     return NextResponse.json(
-      { error: 'master_category and at least 2 juror_ids are required' },
+      { error: 'master_category and at least 1 juror_id are required' },
       { status: 400 }
     )
   }
@@ -36,7 +36,9 @@ export async function POST(req: NextRequest) {
     // Only nominations with a matched editorial summary are eligible for assignment.
     .select('id, company, editorial_summary!inner(id), assignments(juror_id)')
     .eq('master_category', master_category)
-  if (category_key) nomQuery = nomQuery.eq('category_key', category_key)
+  if (Array.isArray(category_keys) && category_keys.length > 0) {
+    nomQuery = nomQuery.in('category_key', category_keys)
+  }
 
   const [{ data: nominations }, { data: allConflicts }] = await Promise.all([
     nomQuery,
@@ -77,15 +79,18 @@ export async function POST(req: NextRequest) {
       return true
     })
 
-    if (eligible.length < slotsNeeded) {
+    if (eligible.length === 0) {
       skipped++
       continue
     }
 
+    // Fill as many slots as the eligible pool allows (may be fewer than slotsNeeded when pool is small)
+    const fillCount = Math.min(eligible.length, slotsNeeded)
+
     // Pick the least-loaded eligible jurors
     const picks = [...eligible]
       .sort((a, b) => (loadMap.get(a) ?? 0) - (loadMap.get(b) ?? 0))
-      .slice(0, slotsNeeded)
+      .slice(0, fillCount)
 
     for (const jid of picks) {
       toInsert.push({ nomination_id: nom.id, juror_id: jid, assigned_by: admin.id, status: 'pending' })
