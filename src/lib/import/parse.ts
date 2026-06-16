@@ -205,7 +205,9 @@ const COMBINED_EXTRA_META = new Set([
   // New format (no Master_ prefix)
   'Name',
   'Outcome Summary',
+  'Summary / Answer',
   'Jury Notes',
+  'Strategic Feedback',
   'Strength & Achievement Points',
   'Review Flags',
   'Total Score', 'Final Score',
@@ -361,11 +363,12 @@ export function parseCombinedCsv(buffer: Buffer): CombinedRow[] {
         // Any non-empty recommendation is affirmative; only blank or explicit negatives are false
         qualifies: qualifiesRaw.length > 0 && !/^(NO\b|DOES NOT|DISQUAL|REJECT|FAIL)/i.test(qualifiesRaw),
         // Support old (Master_ prefix) and new (no prefix) summary column names
-        summary: pickCell(row, 'Master_Summary / Answer', 'Outcome Summary', 'Refined Summary'),
+        summary: pickCell(row, 'Master_Summary / Answer', 'Summary / Answer', 'Outcome Summary', 'Refined Summary'),
         jury_notes: pickCell(row, 'Master_Jury Notes', 'Jury Notes', 'Refined Jury Notes'),
         strategic_feedback: pickCell(
           row,
           'Master_Strategic Feedback',
+          'Strategic Feedback',
           'Strength & Achievement Points',
           'Strengths & Achievement Points',
         ),
