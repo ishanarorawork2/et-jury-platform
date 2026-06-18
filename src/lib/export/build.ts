@@ -8,6 +8,8 @@ export type ExportNom = {
   nominee_name: string
   company: string
   designation: string | null
+  email: string | null
+  mobile: string | null
   master_category: string
   category_key: string
   raw_data_json: Record<string, Record<string, string>>
@@ -62,23 +64,6 @@ export type Assembled = {
 
 export type SheetDef = { name: string; headers: string[]; aoa: (string | number)[][] }
 
-const SECTION_ORDER = ['Basic', 'Round 1', 'Round 2', 'Round 3']
-const REF = 'Reference Only: ' // prefix for non-binding AI fields
-
-// Flatten raw_data_json into ordered "Section — Question" → answer.
-function flattenRaw(raw: Record<string, Record<string, string>>): Record<string, string> {
-  const out: Record<string, string> = {}
-  const keys = Object.keys(raw ?? {})
-  const sections = [
-    ...SECTION_ORDER.filter((s) => keys.includes(s)),
-    ...keys.filter((s) => !SECTION_ORDER.includes(s)),
-  ]
-  for (const s of sections) {
-    for (const [q, a] of Object.entries(raw[s] ?? {})) out[`${s} — ${q}`] = a
-  }
-  return out
-}
-
 // Build assembled records grouped by category_key (the award category).
 // Completion, final score, rank and ties come pre-computed from the
 // category_rankings view — this guarantees the export matches the UI exactly.
@@ -126,29 +111,13 @@ export function assembleByCategory(data: ExportData): Map<string, Assembled[]> {
   return byCat
 }
 
-// One sheet for a single category — raw + editorial + jury results side by side.
+// One sheet for a single category — final result columns only.
 export function sheetForCategory(categoryKey: string, records: Assembled[]): SheetDef {
-  // Union of raw question columns across rows, preserving first-seen order.
-  const flats = records.map((r) => flattenRaw(r.nom.raw_data_json))
-  const rawCols: string[] = []
-  const seen = new Set<string>()
-  for (const f of flats) for (const k of Object.keys(f)) if (!seen.has(k)) { seen.add(k); rawCols.push(k) }
-
-  // Union of AI criterion keys (reference only).
-  const critCols: string[] = []
-  const critSeen = new Set<string>()
-  for (const r of records) for (const k of Object.keys(r.summary?.criteria_scores_json ?? {})) {
-    if (!critSeen.has(k)) { critSeen.add(k); critCols.push(k) }
-  }
-
   const headers = [
-    'Master Category', 'Category', 'Nomination Id', 'Nominee Name', 'Company', 'Designation',
-    'Completion Status', 'Rank',
-    ...rawCols,
-    'Editorial Summary', 'Editorial Notes', 'Strategic Feedback',
-    ...critCols.map((c) => `${REF}${c}`),
-    `${REF}AI Total Score`, `${REF}AI Qualifies`,
-    'Judge 1', 'Judge 1 Score', 'Judge 2', 'Judge 2 Score', 'Final Average', 'Jury Comments',
+    'Master Category', 'Category', 'Nominee ID', 'Name', 'Company', 'Designation',
+    'Email', 'Number',
+    'Jury 1 Name', 'Jury 1 Score', 'Jury 2 Name', 'Jury 2 Score',
+    'Jury 1 Comment', 'Jury 2 Comment',
   ]
 
   // Sort: complete (by rank) first, then incomplete.
@@ -158,10 +127,8 @@ export function sheetForCategory(categoryKey: string, records: Assembled[]): She
   })
 
   const aoa = ordered.map((r) => {
-    const f = flattenRaw(r.nom.raw_data_json)
     const j1 = r.jurorResults[0]
     const j2 = r.jurorResults[1]
-    const comments = r.jurorResults.map((j) => j.comment).filter(Boolean).join(' | ')
     return [
       r.nom.master_category,
       categoryLabel(r.nom.category_key),
@@ -169,21 +136,14 @@ export function sheetForCategory(categoryKey: string, records: Assembled[]): She
       r.nom.nominee_name,
       r.nom.company,
       r.nom.designation ?? '',
-      r.complete ? 'Complete' : 'Incomplete',
-      r.rank != null ? `${r.rank}${r.tied ? ' (tie)' : ''}` : '',
-      ...rawCols.map((c) => f[c] ?? ''),
-      r.summary?.summary ?? '',
-      r.summary?.jury_notes ?? '',
-      r.summary?.strategic_feedback ?? '',
-      ...critCols.map((c) => r.summary?.criteria_scores_json?.[c] ?? ''),
-      r.summary?.total_score ?? '',
-      r.summary?.qualifies == null ? '' : r.summary.qualifies ? 'Yes' : 'No',
+      r.nom.email ?? '',
+      r.nom.mobile ?? '',
       j1?.name ?? '',
       j1 ? j1.total : '',
       j2?.name ?? '',
       j2 ? j2.total : '',
-      r.final_score != null ? Number(r.final_score.toFixed(1)) : '',
-      comments,
+      j1?.comment ?? '',
+      j2?.comment ?? '',
     ] as (string | number)[]
   })
 
