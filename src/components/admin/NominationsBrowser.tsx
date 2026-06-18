@@ -1,13 +1,22 @@
 'use client'
 
 import { useMemo, useState, useCallback } from 'react'
-import { FileX, Check, X, Gauge } from 'lucide-react'
+import { FileX, Check, X, Gauge, Download } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
 import { DataGrid, type ColumnDef, type FilterDef } from '@/components/ui/data-grid'
 import { Select } from '@/components/ui/select'
 import { Meter } from '@/components/ui/meter'
 import { StatCard } from '@/components/ui/stat-card'
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+} from '@/components/ui/dropdown-menu'
 import { categoryLabel } from '@/lib/categories'
 import { lifecycleStatus, type LifecycleStatus } from '@/lib/status'
 import { useReviewModal } from '@/components/nomination/ReviewModalProvider'
@@ -192,6 +201,24 @@ export default function NominationsBrowser({
       .sort((a, b) => b.count - a.count)
   }, [shortlisted, jurors])
   const maxLoad = Math.max(1, ...jurorLoad.map((j) => j.count))
+
+  // Grouped category structure for the PDF download dropdowns
+  const masterCategories = useMemo(() => {
+    const masterMap = new Map<string, Map<string, number>>()
+    for (const n of nominations) {
+      if (!masterMap.has(n.master_category)) masterMap.set(n.master_category, new Map())
+      const sub = masterMap.get(n.master_category)!
+      sub.set(n.category_key, (sub.get(n.category_key) ?? 0) + 1)
+    }
+    return Array.from(masterMap.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([master, subMap]) => ({
+        master,
+        subCategories: Array.from(subMap.entries())
+          .sort(([a], [b]) => categoryLabel(a).localeCompare(categoryLabel(b)))
+          .map(([key, count]) => ({ key, count })),
+      }))
+  }, [nominations])
 
   const jurorName = useCallback(
     (jurorId: string) => jurors.find((j) => j.id === jurorId)?.name ?? jurorId,
@@ -401,6 +428,44 @@ export default function NominationsBrowser({
             value={`${filledSlots}/${totalSlots}`}
             tone="info"
           />
+        </div>
+      )}
+
+      {/* Category PDF downloads */}
+      {masterCategories.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs text-muted-foreground">Download PDFs:</span>
+          {masterCategories.map(({ master, subCategories }) => (
+            <DropdownMenu key={master}>
+              <DropdownMenuTrigger
+                render={
+                  <Button variant="outline" size="sm">
+                    <Download className="size-3.5" />
+                    {master}
+                  </Button>
+                }
+              />
+              <DropdownMenuContent>
+                <DropdownMenuLabel>Download {master}</DropdownMenuLabel>
+                <DropdownMenuItem
+                  render={<a href={`/api/admin/nominations/pdf?master=${encodeURIComponent(master)}`} />}
+                >
+                  <Download className="size-4" />
+                  All sub-categories ({subCategories.reduce((n, s) => n + s.count, 0)} nominations)
+                </DropdownMenuItem>
+                {subCategories.length > 1 && <DropdownMenuSeparator />}
+                {subCategories.length > 1 &&
+                  subCategories.map((sc) => (
+                    <DropdownMenuItem
+                      key={sc.key}
+                      render={<a href={`/api/admin/nominations/pdf?category=${encodeURIComponent(sc.key)}`} />}
+                    >
+                      {categoryLabel(sc.key)} ({sc.count})
+                    </DropdownMenuItem>
+                  ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ))}
         </div>
       )}
 

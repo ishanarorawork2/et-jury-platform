@@ -1,7 +1,7 @@
 'use client'
 
 import { createContext, useCallback, useContext, useEffect, useState } from 'react'
-import { X, ChevronLeft, ChevronRight } from 'lucide-react'
+import { X, ChevronLeft, ChevronRight, Download } from 'lucide-react'
 import NominationReview, { type ReviewData } from './NominationReview'
 import { Skeleton } from '@/components/ui/skeleton'
 
@@ -106,11 +106,23 @@ export default function ReviewModalProvider({ children }: { children: React.Reac
                   {index + 1} of {ids.length}
                 </span>
               </div>
-              <button
-                onClick={close}
-                className="inline-flex size-8 items-center justify-center rounded-lg text-muted-foreground outline-none transition-colors hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50"
-                title="Close (Esc)"
-              ><X className="size-4" /></button>
+              <div className="flex items-center gap-1">
+                {data && data.role === 'admin' && (
+                  <a
+                    href={`/api/admin/nominations/${currentId}/pdf`}
+                    download
+                    className="inline-flex size-8 items-center justify-center rounded-lg text-muted-foreground outline-none transition-colors hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50"
+                    title="Download PDF"
+                  >
+                    <Download className="size-4" />
+                  </a>
+                )}
+                <button
+                  onClick={close}
+                  className="inline-flex size-8 items-center justify-center rounded-lg text-muted-foreground outline-none transition-colors hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50"
+                  title="Close (Esc)"
+                ><X className="size-4" /></button>
+              </div>
             </div>
 
             {/* Body */}
