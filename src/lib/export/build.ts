@@ -10,6 +10,7 @@ export type ExportNom = {
   designation: string | null
   email: string | null
   mobile: string | null
+  company_size: string | null
   master_category: string
   category_key: string
   raw_data_json: Record<string, Record<string, string>>
@@ -119,6 +120,9 @@ function basicField(raw: Record<string, Record<string, string>>, pattern: RegExp
   return ''
 }
 
+// Categories where the company-size bucket (e.g. "Large Enterprise") is captured.
+const COMPANY_SIZE_CATEGORIES = new Set(['et_ciso', 'et_rising_star'])
+
 // One sheet for a single category — final result columns only.
 export function sheetForCategory(categoryKey: string, records: Assembled[]): SheetDef {
   // Union of AI criterion keys across the sheet, preserving first-seen order.
@@ -128,10 +132,13 @@ export function sheetForCategory(categoryKey: string, records: Assembled[]): She
     if (!critSeen.has(k)) { critSeen.add(k); critCols.push(k) }
   }
 
+  const showCompanySize = COMPANY_SIZE_CATEGORIES.has(categoryKey)
+
   const headers = [
     'Master Category', 'Category', 'Nominee ID', 'Name', 'Company', 'Designation',
     'Email', 'Number',
     'Company Revenue', 'Company Size (Employee Count)',
+    ...(showCompanySize ? ['Company Size'] : []),
     ...critCols.map((c) => `AI Score: ${c}`), 'AI Total Score',
     'Jury 1 Name', 'Jury 1 Score', 'Jury 2 Name', 'Jury 2 Score',
     'Jury 1 Comment', 'Jury 2 Comment',
@@ -158,6 +165,7 @@ export function sheetForCategory(categoryKey: string, records: Assembled[]): She
       r.nom.mobile ?? '',
       basicField(r.nom.raw_data_json, /revenue/i),
       basicField(r.nom.raw_data_json, /employee\s*size/i),
+      ...(showCompanySize ? [r.nom.company_size && r.nom.company_size !== 'Not Defined' ? r.nom.company_size : ''] : []),
       ...critCols.map((c) => r.summary?.criteria_scores_json?.[c] ?? ''),
       r.summary?.total_score ?? '',
       j1?.name ?? '',

@@ -20,7 +20,7 @@ async function loadExportData(): Promise<ExportData> {
   const [nominations, summaries, rankings, assignments, scores, jurors] = await Promise.all([
     fetchAll<ExportData['nominations'][number]>(
       service, 'nominations',
-      'id, nomination_id, nominee_name, company, designation, email, mobile, master_category, category_key, raw_data_json'
+      'id, nomination_id, nominee_name, company, designation, email, mobile, company_size, master_category, category_key, raw_data_json'
     ),
     fetchAll<ExportData['summaries'][number]>(
       service, 'editorial_summary',
