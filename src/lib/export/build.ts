@@ -118,6 +118,7 @@ export function sheetForCategory(categoryKey: string, records: Assembled[]): She
     'Email', 'Number',
     'Jury 1 Name', 'Jury 1 Score', 'Jury 2 Name', 'Jury 2 Score',
     'Jury 1 Comment', 'Jury 2 Comment',
+    'Final Score', 'Rank',
   ]
 
   // Sort: complete (by rank) first, then incomplete.
@@ -144,6 +145,8 @@ export function sheetForCategory(categoryKey: string, records: Assembled[]): She
       j2 ? j2.total : '',
       j1?.comment ?? '',
       j2?.comment ?? '',
+      r.final_score != null ? Number(r.final_score.toFixed(1)) : '',
+      r.rank != null ? `${r.rank}${r.tied ? ' (tie)' : ''}` : '',
     ] as (string | number)[]
   })
 
