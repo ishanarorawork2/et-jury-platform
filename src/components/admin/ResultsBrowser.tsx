@@ -328,6 +328,16 @@ export default function ResultsBrowser({
                     }
                   />
                   <DropdownMenuContent>
+                    {!master && (
+                      <>
+                        <DropdownMenuLabel>Export everything</DropdownMenuLabel>
+                        <DropdownMenuItem render={<a href="/api/admin/results/export?scope=all" />}>
+                          <Download className="size-4" />
+                          All categories (.xlsx)
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                      </>
+                    )}
                     <DropdownMenuLabel>Export {cat}</DropdownMenuLabel>
                     <DropdownMenuItem
                       render={<a href={`/api/admin/results/export?scope=master&master=${encodeURIComponent(cat)}`} />}
