@@ -111,10 +111,27 @@ export function assembleByCategory(data: ExportData): Map<string, Assembled[]> {
   return byCat
 }
 
+// Find a value in the Basic section by a case-insensitive key pattern.
+// (Field labels carry mojibake/variants, so match loosely rather than exact.)
+function basicField(raw: Record<string, Record<string, string>>, pattern: RegExp): string {
+  const basic = raw?.['Basic'] ?? {}
+  for (const [k, v] of Object.entries(basic)) if (pattern.test(k)) return v ?? ''
+  return ''
+}
+
 // One sheet for a single category — final result columns only.
 export function sheetForCategory(categoryKey: string, records: Assembled[]): SheetDef {
+  // Union of AI criterion keys across the sheet, preserving first-seen order.
+  const critCols: string[] = []
+  const critSeen = new Set<string>()
+  for (const r of records) for (const k of Object.keys(r.summary?.criteria_scores_json ?? {})) {
+    if (!critSeen.has(k)) { critSeen.add(k); critCols.push(k) }
+  }
+
   const headers = [
     'Master Category', 'Category', 'Nominee ID', 'Name', 'Company', 'Designation',
+    'Company Revenue', 'Company Size (Employee Count)',
+    ...critCols.map((c) => `AI Score: ${c}`), 'AI Total Score', 'AI Qualifies',
     'Email', 'Number',
     'Jury 1 Name', 'Jury 1 Score', 'Jury 2 Name', 'Jury 2 Score',
     'Jury 1 Comment', 'Jury 2 Comment',
@@ -137,6 +154,11 @@ export function sheetForCategory(categoryKey: string, records: Assembled[]): She
       r.nom.nominee_name,
       r.nom.company,
       r.nom.designation ?? '',
+      basicField(r.nom.raw_data_json, /revenue/i),
+      basicField(r.nom.raw_data_json, /employee\s*size/i),
+      ...critCols.map((c) => r.summary?.criteria_scores_json?.[c] ?? ''),
+      r.summary?.total_score ?? '',
+      r.summary?.qualifies == null ? '' : r.summary.qualifies ? 'Yes' : 'No',
       r.nom.email ?? '',
       r.nom.mobile ?? '',
       j1?.name ?? '',
